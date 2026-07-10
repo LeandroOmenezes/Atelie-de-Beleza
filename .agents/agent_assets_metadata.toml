@@ -1,0 +1,38 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "S3AN7SXAce8q7ZK3dTN-3"
+uri = "file://documentacao-sistema.pdf"
+type = "pdf"
+title = "Documentação do Sistema de Agendamentos"
+
+[[outputs]]
+id = "RkiIXXeyjCIRC6RfNEFAG"
+uri = "file://generated/Documentacao_Sistema_Atelie_de_Beleza.pdf"
+type = "pdf"
+title = "Documentação Completa — Ateliê de Beleza (com screenshots)"
+
+[[outputs]]
+id = "7pLq20emVvTCop2XlLBbu"
+uri = "file://generated/Contrato_Propriedade_Sistema_Atelie_de_Beleza.pdf"
+type = "pdf"
+title = "Contrato de Propriedade do Software — Leandro Oliveira Menezes"
+
+[[outputs]]
+id = "MnD1taKOEGmgr_N0C12bt"
+uri = "file://generated/Documentacao_Sistema_Atelie_de_Beleza.docx"
+type = "word_document"
+title = "Documentação do Sistema — com prints reais (.docx)"
+
+[[outputs]]
+id = "wFOLQcUsE8OuNsOmfNshC"
+uri = "file://generated/Contrato_Propriedade_Sistema_Atelie_de_Beleza.docx"
+type = "word_document"
+title = "Contrato de Compra e Venda — R$ 5.000,00 (.docx)"
+
+[[outputs]]
+id = "GXMSdgCLidc8R2s8fjWLW"
+uri = "file://dump_atelie_beleza.sql.gz"
+type = "unspecified"
+title = "Dump completo do banco — Ateliê de Beleza"

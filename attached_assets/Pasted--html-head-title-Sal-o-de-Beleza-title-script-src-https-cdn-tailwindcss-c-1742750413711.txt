@@ -1,0 +1,391 @@
+<html>
+ <head>
+  <title>
+   Barbearia
+  </title>
+  <script src="https://cdn.tailwindcss.com">
+  </script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&amp;display=swap" rel="stylesheet"/>
+ </head>
+ <body class="font-roboto bg-gray-100">
+  <header class="bg-white shadow-md">
+   <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+    <div class="text-2xl font-bold text-gray-800">
+     Ateliê de Beleza
+    </div>
+    <div class="md:hidden">
+     <button class="text-gray-800 focus:outline-none" id="menu-toggle">
+      <i class="fas fa-bars">
+      </i>
+     </button>
+    </div>
+    <nav class="hidden md:flex space-x-4 items-center">
+     <div class="relative">
+      <button class="text-gray-800 hover:text-gray-600 focus:outline-none" id="dropdown-toggle">
+       <i class="fas fa-bars">
+       </i>
+      </button>
+      <div class="hidden absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-20" id="dropdown-menu">
+       <a class="block px-4 py-2 text-gray-800 hover:bg-gray-200" href="#services">
+        Serviços
+       </a>
+       <a class="block px-4 py-2 text-gray-800 hover:bg-gray-200" href="#prices">
+        Preços
+       </a>
+       <a class="block px-4 py-2 text-gray-800 hover:bg-gray-200" href="#appointments">
+        Agendamentos
+       </a>
+       <a class="block px-4 py-2 text-gray-800 hover:bg-gray-200" href="#reviews">
+        Avaliações
+       </a>
+       <a class="block px-4 py-2 text-gray-800 hover:bg-gray-200" href="#sales-management">
+        Gestão de Vendas
+       </a>
+      </div>
+     </div>
+     <a class="text-gray-800 hover:text-gray-600" href="#login">
+      Login
+     </a>
+    </nav>
+   </div>
+  </header>
+  <section class="bg-white py-20" id="hero">
+   <div class="container mx-auto px-4 text-center">
+    <h1 class="text-4xl font-bold text-gray-800 mb-4">
+     Bem-vindo ao Salão de Beleza
+    </h1>
+    <p class="text-gray-600 mb-8">
+     Agende seu horário online e tenha a melhor experiência de beleza.
+    </p>
+    <a class="bg-blue-500 text-white px-6 py-3 rounded-full hover:bg-blue-600" href="#appointments">
+     Agendar Agora
+    </a>
+   </div>
+  </section>
+  <section class="bg-gray-100 py-20" id="services">
+   <div class="container mx-auto px-4">
+    <h2 class="text-3xl font-bold text-gray-800 text-center mb-8">
+     Nossos Serviços
+    </h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+     <div class="bg-white p-6 rounded-lg shadow-md text-center">
+      <img alt="Imagem de um corte de cabelo moderno" class="w-full h-48 object-cover mb-4 rounded-lg" src="https://placehold.co/300x200"/>
+      <h3 class="text-xl font-bold text-gray-800 mb-2">
+       Corte de Cabelo
+      </h3>
+      <p class="text-gray-600">
+       Cortes modernos e clássicos para todos os estilos.
+      </p>
+     </div>
+     <div class="bg-white p-6 rounded-lg shadow-md text-center">
+      <img alt="Imagem de uma manicure sendo realizada" class="w-full h-48 object-cover mb-4 rounded-lg" src="https://placehold.co/300x200"/>
+      <h3 class="text-xl font-bold text-gray-800 mb-2">
+       Manicure
+      </h3>
+      <p class="text-gray-600">
+       Cuidados especiais para suas unhas.
+      </p>
+     </div>
+     <div class="bg-white p-6 rounded-lg shadow-md text-center">
+      <img alt="Imagem de um tratamento de pele" class="w-full h-48 object-cover mb-4 rounded-lg" src="https://placehold.co/300x200"/>
+      <h3 class="text-xl font-bold text-gray-800 mb-2">
+       Tratamento de Pele
+      </h3>
+      <p class="text-gray-600">
+       Tratamentos para uma pele saudável e radiante.
+      </p>
+     </div>
+    </div>
+   </div>
+  </section>
+  <section class="bg-white py-20" id="prices">
+   <div class="container mx-auto px-4">
+    <h2 class="text-3xl font-bold text-gray-800 text-center mb-8">
+     Nossos Preços
+    </h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+     <div class="bg-gray-100 p-6 rounded-lg shadow-md text-center">
+      <h3 class="text-xl font-bold text-gray-800 mb-2">
+       Corte de Cabelo
+      </h3>
+      <p class="text-gray-600 mb-4">
+       A partir de R$50,00
+      </p>
+     </div>
+     <div class="bg-gray-100 p-6 rounded-lg shadow-md text-center">
+      <h3 class="text-xl font-bold text-gray-800 mb-2">
+       Manicure
+      </h3>
+      <p class="text-gray-600 mb-4">
+       A partir de R$30,00
+      </p>
+     </div>
+     <div class="bg-gray-100 p-6 rounded-lg shadow-md text-center">
+      <h3 class="text-xl font-bold text-gray-800 mb-2">
+       Tratamento de Pele
+      </h3>
+      <p class="text-gray-600 mb-4">
+       A partir de R$80,00
+      </p>
+     </div>
+    </div>
+   </div>
+  </section>
+  <section class="bg-gray-100 py-20" id="appointments">
+   <div class="container mx-auto px-4">
+    <h2 class="text-3xl font-bold text-gray-800 text-center mb-8">
+     Agende seu Horário
+    </h2>
+    <form class="bg-white p-6 rounded-lg shadow-md max-w-lg mx-auto" id="appointment-form">
+     <div class="mb-4">
+      <label class="block text-gray-700 font-bold mb-2" for="name">
+       Nome
+      </label>
+      <input class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500" id="name" placeholder="Seu nome" type="text"/>
+     </div>
+     <div class="mb-4">
+      <label class="block text-gray-700 font-bold mb-2" for="email">
+       Email
+      </label>
+      <input class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500" id="email" placeholder="Seu email" type="email"/>
+     </div>
+     <div class="mb-4">
+      <label class="block text-gray-700 font-bold mb-2" for="phone">
+       Telefone (WhatsApp)
+      </label>
+      <input class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500" id="phone" placeholder="Seu número de WhatsApp" type="tel"/>
+     </div>
+     <div class="mb-4">
+      <label class="block text-gray-700 font-bold mb-2" for="service">
+       Serviço
+      </label>
+      <select class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500" id="service">
+       <option>
+        Corte de Cabelo
+       </option>
+       <option>
+        Manicure
+       </option>
+       <option>
+        Tratamento de Pele
+       </option>
+      </select>
+     </div>
+     <div class="mb-4">
+      <label class="block text-gray-700 font-bold mb-2" for="date">
+       Data
+      </label>
+      <input class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500" id="date" type="date"/>
+     </div>
+     <div class="mb-4">
+      <label class="block text-gray-700 font-bold mb-2" for="time">
+       Hora
+      </label>
+      <input class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500" id="time" type="time"/>
+     </div>
+     <button class="bg-blue-500 text-white px-6 py-3 rounded-full hover:bg-blue-600 w-full" type="submit">
+      Agendar
+     </button>
+    </form>
+   </div>
+  </section>
+  <section class="bg-white py-20" id="reviews">
+   <div class="container mx-auto px-4">
+    <h2 class="text-3xl font-bold text-gray-800 text-center mb-8">
+     Avaliações dos Clientes
+    </h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+     <div class="bg-gray-100 p-6 rounded-lg shadow-md">
+      <div class="flex items-center mb-4">
+       <img alt="Foto de perfil de cliente" class="w-12 h-12 rounded-full mr-4" src="https://placehold.co/50x50"/>
+       <div>
+        <h3 class="text-xl font-bold text-gray-800">
+         Maria Silva
+        </h3>
+        <div class="text-yellow-500">
+         <i class="fas fa-star">
+         </i>
+         <i class="fas fa-star">
+         </i>
+         <i class="fas fa-star">
+         </i>
+         <i class="fas fa-star">
+         </i>
+         <i class="fas fa-star-half-alt">
+         </i>
+        </div>
+       </div>
+      </div>
+      <p class="text-gray-600">
+       Ótimo atendimento e serviço de qualidade. Recomendo!
+      </p>
+     </div>
+     <div class="bg-gray-100 p-6 rounded-lg shadow-md">
+      <div class="flex items-center mb-4">
+       <img alt="Foto de perfil de cliente" class="w-12 h-12 rounded-full mr-4" src="https://placehold.co/50x50"/>
+       <div>
+        <h3 class="text-xl font-bold text-gray-800">
+         João Pereira
+        </h3>
+        <div class="text-yellow-500">
+         <i class="fas fa-star">
+         </i>
+         <i class="fas fa-star">
+         </i>
+         <i class="fas fa-star">
+         </i>
+         <i class="fas fa-star">
+         </i>
+         <i class="fas fa-star">
+         </i>
+        </div>
+       </div>
+      </div>
+      <p class="text-gray-600">
+       Ambiente agradável e profissionais competentes.
+      </p>
+     </div>
+     <div class="bg-gray-100 p-6 rounded-lg shadow-md">
+      <div class="flex items-center mb-4">
+       <img alt="Foto de perfil de cliente" class="w-12 h-12 rounded-full mr-4" src="https://placehold.co/50x50"/>
+       <div>
+        <h3 class="text-xl font-bold text-gray-800">
+         Ana Costa
+        </h3>
+        <div class="text-yellow-500">
+         <i class="fas fa-star">
+         </i>
+         <i class="fas fa-star">
+         </i>
+         <i class="fas fa-star">
+         </i>
+         <i class="fas fa-star">
+         </i>
+         <i class="fas fa-star-half-alt">
+         </i>
+        </div>
+       </div>
+      </div>
+      <p class="text-gray-600">
+       Adorei o corte de cabelo, voltarei com certeza!
+      </p>
+     </div>
+    </div>
+   </div>
+  </section>
+  <section class="bg-gray-100 py-20" id="login">
+   <div class="container mx-auto px-4">
+    <h2 class="text-3xl font-bold text-gray-800 text-center mb-8">
+     Login
+    </h2>
+    <form class="bg-white p-6 rounded-lg shadow-md max-w-lg mx-auto">
+     <div class="mb-4">
+      <label class="block text-gray-700 font-bold mb-2" for="email-login">
+       Email
+      </label>
+      <input class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500" id="email-login" placeholder="Seu email" type="email"/>
+     </div>
+     <div class="mb-4">
+      <label class="block text-gray-700 font-bold mb-2" for="password">
+       Senha
+      </label>
+      <input class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500" id="password" placeholder="Sua senha" type="password"/>
+     </div>
+     <button class="bg-blue-500 text-white px-6 py-3 rounded-full hover:bg-blue-600 w-full mb-4" type="submit">
+      Entrar
+     </button>
+     <button class="bg-red-500 text-white px-6 py-3 rounded-full hover:bg-red-600 w-full mb-4" type="button">
+      <i class="fab fa-google mr-2">
+      </i>
+      Entrar com Google
+     </button>
+     <div class="flex justify-between">
+      <a class="text-blue-500 hover:underline" href="#">
+       Esqueci a senha
+      </a>
+      <a class="text-blue-500 hover:underline" href="#">
+       Cadastrar
+      </a>
+     </div>
+    </form>
+   </div>
+  </section>
+  <section class="bg-white py-20" id="sales-management">
+   <div class="container mx-auto px-4">
+    <h2 class="text-3xl font-bold text-gray-800 text-center mb-8">
+     Gestão de Vendas
+    </h2>
+    <form class="bg-gray-100 p-6 rounded-lg shadow-md max-w-lg mx-auto">
+     <div class="mb-4">
+      <label class="block text-gray-700 font-bold mb-2" for="client-name">
+       Nome do Cliente
+      </label>
+      <input class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500" id="client-name" placeholder="Nome do cliente" type="text"/>
+     </div>
+     <div class="mb-4">
+      <label class="block text-gray-700 font-bold mb-2" for="service-sold">
+       Serviço Vendido
+      </label>
+      <select class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500" id="service-sold">
+       <option>
+        Corte de Cabelo
+       </option>
+       <option>
+        Manicure
+       </option>
+       <option>
+        Tratamento de Pele
+       </option>
+      </select>
+     </div>
+     <div class="mb-4">
+      <label class="block text-gray-700 font-bold mb-2" for="sale-date">
+       Data da Venda
+      </label>
+      <input class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500" id="sale-date" type="date"/>
+     </div>
+     <div class="mb-4">
+      <label class="block text-gray-700 font-bold mb-2" for="sale-amount">
+       Valor da Venda
+      </label>
+      <input class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500" id="sale-amount" placeholder="Valor da venda" type="number"/>
+     </div>
+     <button class="bg-blue-500 text-white px-6 py-3 rounded-full hover:bg-blue-600 w-full" type="submit">
+      Registrar Venda
+     </button>
+    </form>
+   </div>
+  </section>
+  <footer class="bg-white py-6">
+   <div class="container mx-auto px-4 text-center">
+    <p class="text-gray-600">
+     © 2026 Salão de Beleza. Todos os direitos reservados a Leandro Menezes.
+    </p>
+   </div>
+  </footer>
+  <script>
+   document.getElementById('menu-toggle').addEventListener('click', function() {
+            var menu = document.getElementById('menu');
+            menu.classList.toggle('hidden');
+        });
+
+        document.getElementById('dropdown-toggle').addEventListener('click', function() {
+            var dropdownMenu = document.getElementById('dropdown-menu');
+            dropdownMenu.classList.toggle('hidden');
+        });
+
+        document.getElementById('appointment-form').addEventListener('submit', function(event) {
+            event.preventDefault();
+            var name = document.getElementById('name').value;
+            var phone = document.getElementById('phone').value;
+            var service = document.getElementById('service').value;
+            var date = document.getElementById('date').value;
+            var time = document.getElementById('time').value;
+            var whatsappMessage = `Olá, meu nome é ${name}. Gostaria de agendar um ${service} para o dia ${date} às ${time}.`;
+            var whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(whatsappMessage)}`;
+            window.open(whatsappUrl, '_blank');
+        });
+  </script>
+ </body>
+</html>

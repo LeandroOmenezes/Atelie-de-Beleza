@@ -43,14 +43,18 @@ export function SubscriptionPlansPage() {
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [priceItems, setPriceItems] = useState<Array<{ id: number; name?: string }>>([]);
   const [userSubscription, setUserSubscription] = useState<UserSubscription | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [pageIsLoading, setPageIsLoading] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
   const [showCheckout, setShowCheckout] = useState(false);
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const [, navigate] = useLocation();
 
   useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+
     if (!user) {
       navigate("/auth");
       return;
@@ -90,7 +94,7 @@ export function SubscriptionPlansPage() {
           variant: "destructive",
         });
       } finally {
-        setIsLoading(false);
+        setPageIsLoading(false);
       }
     };
 
@@ -144,7 +148,7 @@ export function SubscriptionPlansPage() {
     }).then((sub) => setUserSubscription(sub));
   };
 
-  if (isLoading) {
+  if (pageIsLoading || isLoading) {
     return (
       <div className="flex justify-center items-center min-h-screen">
         <p>Carregando planos...</p>

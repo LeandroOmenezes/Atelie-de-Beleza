@@ -5,6 +5,23 @@ const sdkScriptUrl = "https://sdk.mercadopago.com/js/v2";
 // evita múltiplas montagens concorrentes por container
 const mountingPromises: Record<string, Promise<any> | null> = {};
 
+// Debug helpers expostos globalmente para diagnóstico em runtime
+try {
+  const g: any = window as any;
+  if (!g.__mpDebugLogs) g.__mpDebugLogs = [];
+  if (!g.__lastMercadoPagoError) g.__lastMercadoPagoError = null;
+  if (!g.getMercadoPagoDebug) {
+    g.getMercadoPagoDebug = () => ({
+      lastError: g.__lastMercadoPagoError,
+      logs: g.__mpDebugLogs,
+      mercadoPagoKeys: typeof g.MercadoPago !== 'undefined' ? Object.keys(g.MercadoPago).slice(0,50) : null,
+      windowKeys: Object.keys(g).filter(k => k.toLowerCase().includes('mercad')),
+    });
+  }
+} catch (e) {
+  // ignore
+}
+
 function removeMercadoPagoScripts(): void {
   document.querySelectorAll<HTMLScriptElement>(`script[src="${sdkScriptUrl}"]`).forEach((script) => script.remove());
 }
@@ -16,17 +33,66 @@ function clearMercadoPagoContexts(): void {
       return;
     }
 
+    // Tentar destruir contextos de múltiplas formas
+    const contextNames = [
+      "expirationFields",
+      "formMap", 
+      "securityCodeFields",
+      "cardNumberFields",
+      "cardholderNameFields",
+      "cardExpirationDateFields"
+    ];
+
+    // Método 1: destroyContexts
     if (typeof mercadoPagoClass.destroyContexts === "function") {
-      mercadoPagoClass.destroyContexts();
-      console.log("Mercado Pago: internal SDK contexts destruídos");
-      return;
+      try {
+        mercadoPagoClass.destroyContexts();
+        console.log("Mercado Pago: internal SDK contexts destruídos via destroyContexts");
+      } catch (e) {
+        console.warn("Mercado Pago: destroyContexts falhou", e);
+      }
     }
 
-    if (typeof mercadoPagoClass.deleteContext === "function") {
-      mercadoPagoClass.deleteContext("expirationFields");
-      mercadoPagoClass.deleteContext("formMap");
-      console.log("Mercado Pago: contextos internos expirations/formMap excluídos");
+    // Método 2: deleteContext individual
+    for (const contextName of contextNames) {
+      if (typeof mercadoPagoClass.deleteContext === "function") {
+        try {
+          mercadoPagoClass.deleteContext(contextName);
+        } catch (e) {
+          // Ignorar erros de contextos que não existem
+        }
+      }
     }
+
+    // Método 3: tentar limpar via propriedades internas
+    if (mercadoPagoClass._contexts) {
+      try { mercadoPagoClass._contexts = {}; } catch {}
+    }
+    if (mercadoPagoClass.contexts) {
+      try { mercadoPagoClass.contexts = {}; } catch {}
+    }
+
+    // Explorar prototype e outras propriedades que podem armazenar contexts
+    try {
+      const places = [mercadoPagoClass, mercadoPagoClass.prototype].filter(Boolean);
+      for (const place of places) {
+        try {
+          const keys = Object.keys(place || {});
+          for (const key of keys) {
+            const kl = key.toLowerCase();
+            if (kl.includes("context") || kl.includes("_contexts") || kl.includes("contexts")) {
+              try { place[key] = {}; } catch {}
+            }
+          }
+        } catch (e) {
+          // ignorar
+        }
+      }
+    } catch (e) {
+      // ignorar
+    }
+
+    console.log("Mercado Pago: contextos internos limpos");
   } catch (error) {
     console.warn("Mercado Pago: falha ao limpar contextos internos do SDK", error);
   }
@@ -38,36 +104,33 @@ async function loadMercadoPagoSdk(): Promise<void> {
   }
 
   const existingScript = document.querySelector<HTMLScriptElement>(`script[src="${sdkScriptUrl}"]`);
-  if (existingScript && (existingScript.dataset.loaded === "true" || window.MercadoPago)) {
+  if (existingScript && window.MercadoPago) {
     return;
+  }
+
+  if (existingScript && !window.MercadoPago) {
+    console.warn("Mercado Pago: script SDK encontrado mas SDK não está disponível; removendo script antigo para recarregar.");
+    existingScript.remove();
   }
 
   await new Promise<void>((resolve, reject) => {
     const onLoad = () => {
       console.log("Mercado Pago: SDK carregado");
-      if (existingScript) existingScript.dataset.loaded = "true";
+      const script = document.querySelector<HTMLScriptElement>(`script[src="${sdkScriptUrl}"]`);
+      if (script) script.dataset.loaded = "true";
       resolve();
     };
 
     const onError = () => reject(new Error("Failed to load Mercado Pago SDK"));
 
-    if (existingScript) {
-      if (window.MercadoPago) {
-        return resolve();
-      }
-
-      existingScript.addEventListener("load", onLoad, { once: true });
-      existingScript.addEventListener("error", onError, { once: true });
-    } else {
-      const script = document.createElement("script");
-      script.src = sdkScriptUrl;
-      script.async = true;
-      script.crossOrigin = "anonymous";
-      script.referrerPolicy = "no-referrer";
-      script.addEventListener("load", onLoad, { once: true });
-      script.addEventListener("error", onError, { once: true });
-      document.head.appendChild(script);
-    }
+    const script = document.createElement("script");
+    script.src = sdkScriptUrl;
+    script.async = true;
+    script.crossOrigin = "anonymous";
+    script.referrerPolicy = "no-referrer";
+    script.addEventListener("load", onLoad, { once: true });
+    script.addEventListener("error", onError, { once: true });
+    document.head.appendChild(script);
   });
 }
 
@@ -78,10 +141,36 @@ export async function resetMercadoPagoSdk() {
   activeCardForm = null;
   clearMercadoPagoContexts();
   removeMercadoPagoScripts();
+  // limpar promises de montagem para evitar races com instâncias anteriores
+  try {
+    for (const k of Object.keys(mountingPromises)) {
+      try { delete mountingPromises[k]; } catch {}
+    }
+  } catch {}
+  // pequena espera para o browser processar remoção de scripts/objetos
+  await new Promise((r) => setTimeout(r, 150));
+
   try {
     delete (window as any).MercadoPago;
+    delete (window as any).MercadoPagoDebug;
+    delete (window as any).__mpDebugLogs;
+    delete (window as any).__lastMercadoPagoError;
   } catch {
     (window as any).MercadoPago = undefined;
+  }
+
+  try {
+    Object.keys(window).forEach((key) => {
+      if (/MercadoPago|mercadopago|MP|mp/i.test(key)) {
+        try {
+          delete (window as any)[key];
+        } catch {
+          // ignore
+        }
+      }
+    });
+  } catch {
+    // ignore
   }
 }
 
@@ -101,25 +190,39 @@ export async function getMercadoPago() {
   mpInitPromise = (async () => {
     try {
       console.log("Mercado Pago: inicializando SDK");
+      try { (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'init_start' }); } catch {}
       const response = await fetch("/api/config/mercadopago-public-key");
       if (!response.ok) {
         const bodyText = await response.text().catch(() => "");
         throw new Error(`Failed to fetch Mercado Pago public key (${response.status}): ${bodyText}`);
       }
 
-      const { publicKey } = await response.json();
+      const data = await response.json();
+      const { publicKey, isConfigured, message } = data;
+      
+      if (!isConfigured) {
+        console.error("Mercado Pago: não está configurado", message);
+        try { (window as any).__lastMercadoPagoError = { stage: 'publicKey', message }; (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'not_configured', message }); } catch {}
+        throw new Error(message || "Mercado Pago não está configurado. Entre em contato com o administrador.");
+      }
+      
       console.log("Mercado Pago: public key carregada", publicKey);
 
       await loadMercadoPagoSdk();
+      try { (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'sdk_loaded' }); } catch {}
+      clearMercadoPagoContexts();
+      try { (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'contexts_cleared_before_instance' }); } catch {}
 
       if (!window.MercadoPago) {
         throw new Error("Mercado Pago SDK não ficou disponível após o carregamento");
       }
 
       mpInstance = new window.MercadoPago(publicKey, { locale: "pt-BR" });
+      try { (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'instance_created' }); } catch {}
       console.log("Mercado Pago: instância criada", { mpInstance, hasCardForm: !!mpInstance?.cardForm });
       if (!mpInstance?.cardForm) {
         console.warn("Mercado Pago: cardForm não encontrado, resetando SDK e tentando novamente");
+        try { (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'cardform_missing' }); } catch {}
         await resetMercadoPagoSdk();
         await loadMercadoPagoSdk();
 
@@ -133,8 +236,9 @@ export async function getMercadoPago() {
         }
       }
       return mpInstance;
-    } catch (error) {
+    } catch (error: any) {
       mpInitPromise = null;
+      try { (window as any).__lastMercadoPagoError = { stage: 'init', error: String(error), stack: error?.stack }; (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'init_error', error: String(error) }); } catch {}
       console.error("Erro ao inicializar Mercado Pago:", error);
       throw error;
     }
@@ -174,8 +278,8 @@ export async function createCardForm(containerId: string, options: any = {}) {
   }
 
   const promise = (async () => {
-    const mp = await getMercadoPago();
     const suffix = containerId.replace(/[^a-zA-Z0-9_-]/g, "-");
+    let mp = await getMercadoPago();
 
     if (typeof mp.cardForm !== "function") {
       throw new Error("Mercado Pago SDK cardForm não está disponível");
@@ -189,7 +293,7 @@ export async function createCardForm(containerId: string, options: any = {}) {
       }
       activeCardForm = null;
       await resetMercadoPagoSdk();
-      await getMercadoPago();
+      mp = await getMercadoPago();
     }
 
     await waitForFormContainer(containerId);
@@ -330,6 +434,15 @@ export async function createCardForm(containerId: string, options: any = {}) {
 
       const tryCreate = async (attempt: number) => {
         try {
+          // garantir que contextos remanescentes sejam limpos antes de criar
+          try {
+            clearMercadoPagoContexts();
+            (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'before_cardform_try', attempt });
+          } catch (e) {
+            // ignore
+          }
+
+          await new Promise((resolve) => requestAnimationFrame(resolve));
           cardFormInstance = mp.cardForm({
             amount: options.amount?.toString() || "0",
             autoMount: true,
@@ -357,6 +470,22 @@ export async function createCardForm(containerId: string, options: any = {}) {
           // não setar activeCardForm aqui — será setado no resolveMount para evitar races
         } catch (err: any) {
           const errorMessage = getErrorMessage(err);
+          try {
+            (window as any).__lastMercadoPagoError = {
+              stage: 'createCardForm',
+              message: errorMessage,
+              raw: err,
+              name: err?.name,
+              stack: err?.stack,
+            };
+            (window as any).__mpDebugLogs.push({
+              ts: Date.now(),
+              msg: 'cardform_exception',
+              errorMessage,
+              name: err?.name,
+              raw: err,
+            });
+          } catch {}
           console.error("Mercado Pago: exception while creating cardForm:", err);
           console.error("Mercado Pago: exception details:", {
             errorMessage,
@@ -364,15 +493,18 @@ export async function createCardForm(containerId: string, options: any = {}) {
             errorName: err?.name,
             errorStack: err?.stack,
             errorString: getErrorMessage(err),
+            rawError: err,
           });
 
           if (attempt === 0) {
             try {
               console.warn("Mercado Pago: erro ao criar cardForm — resetando SDK e tentando novamente", errorMessage);
+              try { (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'cardform_retry_reset' }); } catch {}
               await resetMercadoPagoSdk();
-              await getMercadoPago();
+              mp = await getMercadoPago();
             } catch (resetError) {
               console.warn("Mercado Pago: falha ao resetar SDK durante retry", resetError);
+              try { (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'cardform_retry_reset_failed', resetError: String(resetError) }); } catch {}
               return rejectMount(err);
             }
             return tryCreate(attempt + 1);
@@ -406,7 +538,7 @@ export async function tokenizeCard(cardForm: any): Promise<string | null> {
   }
 }
 
-export async function destroyCardForm(cardForm: any) {
+export async function destroyCardForm(cardForm: any, containerId?: string) {
   if (!cardForm) {
     return;
   }
@@ -423,10 +555,25 @@ export async function destroyCardForm(cardForm: any) {
     } else if (typeof cardForm.destroy === "function") {
       await cardForm.destroy();
     }
+
+    // Limpar o container
+    if (containerId) {
+      const container = document.getElementById(containerId);
+      if (container) {
+        container.innerHTML = "";
+      }
+    }
+    // tentar limpar quaisquer contexts internos do SDK após destruir o form
+    try {
+      clearMercadoPagoContexts();
+      try { (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'after_destroy_clear_contexts' }); } catch {}
+      console.log("Mercado Pago: clearMercadoPagoContexts chamado após destroyCardForm");
+    } catch (e) {
+      try { (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'after_destroy_clear_failed', error: String(e) }); } catch {}
+      console.warn("Mercado Pago: falha ao limpar contexts após destroyCardForm", e);
+    }
   } catch (error) {
     console.warn("Mercado Pago: falha ao destruir o form de cartão", error);
-  } finally {
-    await resetMercadoPagoSdk();
   }
 }
 

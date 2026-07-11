@@ -284,12 +284,23 @@ const ChartLegendContent = React.forwardRef<
         )}
       >
         {payload.map((item) => {
-          const key = `${nameKey || item.dataKey || "value"}`
+          if (!item || typeof item !== "object") {
+            return null
+          }
+
+          const itemAny = item as any
+          const key = `${nameKey || itemAny.dataKey || itemAny.name || "value"}`
           const itemConfig = getPayloadConfigFromPayload(config, item, key)
+          const indicatorColor =
+            itemAny.color ||
+            (itemAny.payload && typeof itemAny.payload === "object" &&
+            "fill" in itemAny.payload
+              ? (itemAny.payload.fill as string)
+              : undefined)
 
           return (
             <div
-              key={item.value}
+              key={item.value ?? key}
               className={cn(
                 "flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-muted-foreground"
               )}
@@ -299,9 +310,11 @@ const ChartLegendContent = React.forwardRef<
               ) : (
                 <div
                   className="h-2 w-2 shrink-0 rounded-[2px]"
-                  style={{
-                    backgroundColor: item.color,
-                  }}
+                  style={
+                    typeof indicatorColor === "string"
+                      ? { backgroundColor: indicatorColor }
+                      : undefined
+                  }
                 />
               )}
               {itemConfig?.label}

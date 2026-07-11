@@ -37,10 +37,9 @@ function Router() {
     <>
       <ScrollToTop />
       <Switch>
-        <Route path="/" component={HomePage} />
         <Route path="/auth" component={AuthPage} />
         <Route path="/reset-password/:token" component={ResetPasswordPage} />
-        <Route path="/planos" component={SubscriptionPlansPage} />
+        <ProtectedRoute path="/planos" component={SubscriptionPlansPage} />
         <ProtectedRoute path="/profile" component={ProfilePage} />
         <ProtectedRoute path="/professional-appointments" component={ProfessionalAppointmentsPage} />
         <AdminProtectedRoute path="/dashboard" component={DashboardPage} />
@@ -52,6 +51,7 @@ function Router() {
         <AdminProtectedRoute path="/admin/categories" component={CategoryManagementPage} />
         <AdminProtectedRoute path="/admin/site-config" component={SiteConfigPage} />
 
+        <Route path="/" component={HomePage} />
         <Route component={NotFound} />
       </Switch>
     </>

@@ -480,7 +480,24 @@ EMAIL_PASS=sua_senha_de_aplicativo
 SUPABASE_URL=https://...supabase.co
 SUPABASE_SERVICE_KEY=seu_service_role_key
 SUPABASE_BUCKET=public
+MERCADOPAGO_PUBLIC_KEY=APP_USR-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+MERCADOPAGO_ACCESS_TOKEN=APP_USR-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
+
+### Configuração do Mercado Pago
+
+**Importante**: Para ativar os pagamentos, você precisa configurar as credenciais do Mercado Pago:
+
+1. Acesse [dashboard.mercadopago.com.br](https://dashboard.mercadopago.com.br)
+2. Vá para Configurações > Credenciais
+3. Copie sua **Public Key** e **Access Token**
+4. Adicione essas credenciais ao arquivo `.env`:
+   ```
+   MERCADOPAGO_PUBLIC_KEY=APP_USR-seu_chave_publica
+   MERCADOPAGO_ACCESS_TOKEN=APP_USR-seu_token_acesso
+   ```
+
+Sem essas configurações, o formulário de pagamento transparente não será exibido e os usuários verão uma mensagem de erro.
 
 ### Comandos
 - npm install
@@ -531,6 +548,8 @@ EMAIL_PASS=sua_senha_de_aplicativo
 SUPABASE_URL=https://...supabase.co
 SUPABASE_SERVICE_KEY=seu_service_role_key
 SUPABASE_BUCKET=public
+MERCADOPAGO_PUBLIC_KEY=APP_USR-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+MERCADOPAGO_ACCESS_TOKEN=APP_USR-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 ### Comandos úteis
@@ -544,7 +563,7 @@ SUPABASE_BUCKET=public
 ### Deploy
 
 1. Configure variáveis de ambiente no servidor
-2. Configure PostgreSQL e Supabase corretamente
+2. Configure PostgreSQL, Supabase e Mercado Pago corretamente
 3. Execute `npm install`
 4. Execute `npm run db:push` quando necessário
 5. Execute `npm run build` e `npm run start`
@@ -552,6 +571,18 @@ SUPABASE_BUCKET=public
 ---
 
 ## 13. Troubleshooting
+
+### Erro: "Falha ao carregar formulário de pagamento"
+
+**Causa**: Mercado Pago não está configurado (credenciais ausentes)
+
+**Solução**:
+1. Copie o arquivo `.env.example` para `.env`
+2. Preencha as credenciais do Mercado Pago:
+   - MERCADOPAGO_PUBLIC_KEY
+   - MERCADOPAGO_ACCESS_TOKEN
+3. Reinicie o servidor (`npm run dev`)
+4. Recarregue a página do navegador
 
 ### Erro de autenticação Google
 

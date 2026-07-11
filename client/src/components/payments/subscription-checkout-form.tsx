@@ -113,6 +113,11 @@ export function SubscriptionCheckoutForm({
           stack: error?.stack,
           raw: error,
         });
+        console.error("SubscriptionCheckoutForm: debug message", {
+          containerId,
+          isCleaning: isCleaningRef.current,
+          isMounting: isMountingRef.current,
+        });
 
         toast({
           title: "Erro",

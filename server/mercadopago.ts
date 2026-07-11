@@ -1,16 +1,23 @@
 import { MercadoPagoConfig, Payment, PreApproval } from "mercadopago";
 
-if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
-  throw new Error("MERCADOPAGO_ACCESS_TOKEN must be set in environment variables");
+// Initialize Mercado Pago SDK
+let payment: any = null;
+let preApproval: any = null;
+
+function initializeMercadoPago() {
+  if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
+    return;
+  }
+  
+  const client = new MercadoPagoConfig({
+    accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN,
+  });
+
+  payment = new Payment(client);
+  preApproval = new PreApproval(client);
 }
 
-// Initialize Mercado Pago SDK
-const client = new MercadoPagoConfig({
-  accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN,
-});
-
-const payment = new Payment(client);
-const preApproval = new PreApproval(client);
+initializeMercadoPago();
 
 /**
  * Cria um pagamento avulso para um agendamento específico
@@ -28,6 +35,10 @@ export async function createAppointmentPayment(
   email: string,
   appointmentId: number
 ) {
+  if (!payment) {
+    throw new Error("Mercado Pago não está configurado. Configure MERCADOPAGO_ACCESS_TOKEN nas variáveis de ambiente.");
+  }
+  
   try {
     const result = await payment.create({
       body: {
@@ -63,6 +74,10 @@ export async function createAppointmentPayment(
  * @returns Status e detalhes do pagamento
  */
 export async function getPayment(paymentId: number) {
+  if (!payment) {
+    throw new Error("Mercado Pago não está configurado. Configure MERCADOPAGO_ACCESS_TOKEN nas variáveis de ambiente.");
+  }
+  
   try {
     const result = await payment.get({ id: paymentId });
     return {
@@ -94,6 +109,10 @@ export async function createPreapproval(
   email: string,
   startDate: Date
 ) {
+  if (!preApproval) {
+    throw new Error("Mercado Pago não está configurado. Configure MERCADOPAGO_ACCESS_TOKEN nas variáveis de ambiente.");
+  }
+  
   try {
     const today = new Date();
     const endDate = new Date(today);
@@ -133,6 +152,10 @@ export async function createPreapproval(
  * @returns Status e detalhes da assinatura
  */
 export async function getPreapproval(preapprovalId: string) {
+  if (!preApproval) {
+    throw new Error("Mercado Pago não está configurado. Configure MERCADOPAGO_ACCESS_TOKEN nas variáveis de ambiente.");
+  }
+  
   try {
     const result = await preApproval.get({ id: preapprovalId });
     return {
@@ -154,6 +177,10 @@ export async function getPreapproval(preapprovalId: string) {
  * @returns Confirmação do cancelamento
  */
 export async function cancelPreapproval(preapprovalId: string) {
+  if (!preApproval) {
+    throw new Error("Mercado Pago não está configurado. Configure MERCADOPAGO_ACCESS_TOKEN nas variáveis de ambiente.");
+  }
+  
   try {
     const result = await preApproval.update({
       id: preapprovalId,
@@ -179,7 +206,12 @@ export async function cancelPreapproval(preapprovalId: string) {
 export function getPublicKey(): string {
   const publicKey = process.env.MERCADOPAGO_PUBLIC_KEY;
   if (!publicKey) {
-    throw new Error("MERCADOPAGO_PUBLIC_KEY must be set in environment variables");
+    console.warn("AVISO: Mercado Pago não está configurado. Configure MERCADOPAGO_PUBLIC_KEY para usar pagamentos.");
+    return ""; // Retorna string vazia para permitir que a aplicação continue funcionando
   }
   return publicKey;
+}
+
+export function isMercadoPagoConfigured(): boolean {
+  return !!process.env.MERCADOPAGO_PUBLIC_KEY && !!process.env.MERCADOPAGO_ACCESS_TOKEN;
 }

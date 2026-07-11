@@ -2125,9 +2125,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/config/mercadopago-public-key", (_req: Request, res: Response) => {
     try {
       const publicKey = mercadoPago.getPublicKey();
-      res.json({ publicKey });
+      const isConfigured = mercadoPago.isMercadoPagoConfigured();
+      
+      if (!isConfigured) {
+        return res.status(503).json({ 
+          publicKey: "",
+          isConfigured: false,
+          message: "Mercado Pago não está configurado. Configure as variáveis de ambiente MERCADOPAGO_PUBLIC_KEY e MERCADOPAGO_ACCESS_TOKEN."
+        });
+      }
+      
+      res.json({ publicKey, isConfigured: true });
     } catch (error) {
-      res.status(500).json({ message: "Erro ao obter configuração do Mercado Pago" });
+      res.status(500).json({ 
+        message: "Erro ao obter configuração do Mercado Pago",
+        publicKey: "",
+        isConfigured: false
+      });
     }
   });
 

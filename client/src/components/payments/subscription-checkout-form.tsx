@@ -229,9 +229,16 @@ export function SubscriptionCheckoutForm({
             </div>
           </Card>
 
-          <div id={containerId} key={containerId} className="space-y-4">
-            {/* O formulário de cartão será renderizado aqui pelo SDK */}
-          </div>
+          <form id={containerId} key={containerId} className="space-y-4" noValidate style={{ display: 'block' }}>
+            <div className="space-y-3">
+              <div id={`${containerId}-cardNumber`} style={{ minHeight: '40px', display: 'block' }} />
+              <div className="grid grid-cols-2 gap-3">
+                <div id={`${containerId}-cardExpirationDate`} style={{ minHeight: '40px', display: 'block' }} />
+                <div id={`${containerId}-securityCode`} style={{ minHeight: '40px', display: 'block' }} />
+              </div>
+              <div id={`${containerId}-cardholderName`} style={{ minHeight: '40px', display: 'block' }} />
+            </div>
+          </form>
 
           <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded">
             Sua assinatura é recorrente. A próxima cobrança será em 30 dias. Você pode cancelar a qualquer momento.

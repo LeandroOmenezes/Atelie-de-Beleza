@@ -2343,6 +2343,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create subscription (checkout)
+  // Tokenize card data for subscription payments
+  app.post("/api/payments/tokenize-card", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "É necessário estar logado" });
+      }
+
+      const { cardNumber, cardholderName, cardExpirationDate, securityCode } = req.body;
+
+      if (!cardNumber || !cardholderName || !cardExpirationDate || !securityCode) {
+        return res.status(400).json({ message: "Dados do cartão inválidos" });
+      }
+
+      // Extract expiration month and year
+      const [expirationMonth, expirationYear] = cardExpirationDate.split("/");
+      const fullYear = expirationYear.length === 2 ? `20${expirationYear}` : expirationYear;
+
+      // Call Mercado Pago Card Tokens API
+      const publicKey = process.env.MERCADOPAGO_PUBLIC_KEY;
+      const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
+
+      if (!publicKey || !accessToken) {
+        return res.status(503).json({ message: "Mercado Pago não está configurado" });
+      }
+
+      const tokenResponse = await fetch("https://api.mercadopago.com/v1/card_tokens", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Access-Token": accessToken,
+        },
+        body: JSON.stringify({
+          card_number: cardNumber.replace(/\s/g, ""),
+          cardholder: {
+            name: cardholderName,
+          },
+          security_code: securityCode,
+          expiration_month: parseInt(expirationMonth),
+          expiration_year: parseInt(fullYear),
+        }),
+      });
+
+      if (!tokenResponse.ok) {
+        const error = await tokenResponse.json();
+        console.error("Mercado Pago tokenization error:", error);
+        return res.status(400).json({ message: "Erro ao tokenizar cartão" });
+      }
+
+      const tokenData = await tokenResponse.json();
+      res.json({ token: tokenData.id });
+    } catch (error: any) {
+      console.error("Erro ao tokenizar cartão:", error);
+      res.status(500).json({ message: "Erro ao processar cartão" });
+    }
+  });
+
   app.post("/api/subscriptions/checkout", async (req: Request, res: Response) => {
     try {
       if (!req.isAuthenticated()) {

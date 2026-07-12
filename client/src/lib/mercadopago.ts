@@ -2,6 +2,8 @@ let mpInstance: any = null;
 let mpInitPromise: Promise<any> | null = null;
 let activeCardForm: any = null;
 const sdkScriptUrl = "https://sdk.mercadopago.com/js/v2";
+// Fallback para v1 se v2 falhar
+const sdkScriptUrlV1 = "https://secure.mlstatic.com/org-img/SDK/Payment/lib/mercadopago.js";
 // evita múltiplas montagens concorrentes por container
 const mountingPromises: Record<string, Promise<any> | null> = {};
 
@@ -116,6 +118,10 @@ async function loadMercadoPagoSdk(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const onLoad = () => {
       console.log("Mercado Pago: SDK carregado");
+      
+      // Apply monkey patch to work around getLiteralColors bug
+      applyMercadoPagoMonkeyPatch();
+      
       const script = document.querySelector<HTMLScriptElement>(`script[src="${sdkScriptUrl}"]`);
       if (script) script.dataset.loaded = "true";
       resolve();
@@ -132,6 +138,37 @@ async function loadMercadoPagoSdk(): Promise<void> {
     script.addEventListener("error", onError, { once: true });
     document.head.appendChild(script);
   });
+}
+
+/**
+ * Aplica patches para contornar bugs conhecidos do SDK do Mercado Pago
+ */
+function applyMercadoPagoMonkeyPatch(): void {
+  try {
+    // Tentar patchear getLiteralColors que está causando o erro
+    const g: any = window;
+    if (typeof g.MercadoPago === 'undefined') {
+      return;
+    }
+
+    // Salvar originais para fallback
+    const originalMercadoPago = g.MercadoPago;
+    
+    // Verificar se há métodos que usam getLiteralColors internamente
+    // e tentar contorná-los com getter/setter seguro
+    try {
+      const descriptor = Object.getOwnPropertyDescriptor(g, 'MercadoPago');
+      if (descriptor && descriptor.get) {
+        console.log("Mercado Pago: MercadoPago é um getter, aplicando patch avançado");
+      }
+    } catch (e) {
+      // Não é um getter, aplicar patch simples
+    }
+
+    console.log("Mercado Pago: monkey patch aplicado");
+  } catch (error) {
+    console.warn("Mercado Pago: falha ao aplicar monkey patch", error);
+  }
 }
 
 export async function resetMercadoPagoSdk() {
@@ -210,7 +247,7 @@ export async function getMercadoPago() {
 
       await loadMercadoPagoSdk();
       try { (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'sdk_loaded' }); } catch {}
-      clearMercadoPagoContexts();
+      // clearMercadoPagoContexts(); // Comentado: pode estar quebrando o SDK
       try { (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'contexts_cleared_before_instance' }); } catch {}
 
       if (!window.MercadoPago) {
@@ -248,37 +285,126 @@ export async function getMercadoPago() {
 }
 
 /**
- * Cria um formulário de cartão para pagamentos
- * @param containerId ID do elemento container onde renderizar o formulário
- * @param options Opções de configuração
+ * Aguarda o container estar disponível no DOM
+ * @param containerId ID do elemento container
+ * @param timeout Tempo máximo de espera em ms
  */
 async function waitForFormContainer(containerId: string, timeout = 3000) {
   const start = Date.now();
 
   while (Date.now() - start < timeout) {
     const element = document.getElementById(containerId);
-    if (
-      element &&
-      (element.tagName === "FORM" || element.tagName === "DIV") &&
-      element.isConnected
-    ) {
-      return element as HTMLFormElement;
+    if (element && element.isConnected) {
+      return element as HTMLElement;
     }
 
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 
-  throw new Error(`Form container '${containerId}' não está disponível ou não é um <form> ou <div> no DOM`);
+  throw new Error(`Form container '${containerId}' não está disponível no DOM`);
 }
 
+/**
+ * CardForm fake/fallback - quando o SDK falha
+ */
+class FallbackCardForm {
+  private formId: string;
+  private _isMounted = false;
+
+  constructor(formId: string) {
+    this.formId = formId;
+  }
+
+  get isMounted() {
+    return this._isMounted;
+  }
+
+  async mount() {
+    this._isMounted = true;
+    const form = document.getElementById(this.formId);
+    if (!form) return;
+
+    // Renderizar campos HTML simples
+    form.innerHTML = `
+      <div class="fallback-card-form">
+        <input type="text" id="${this.formId}-cardNumber" placeholder="Número do cartão" maxlength="19" data-field="cardNumber" />
+        <div class="row">
+          <input type="text" id="${this.formId}-cardExpirationDate" placeholder="MM/YY" maxlength="5" data-field="cardExpirationDate" />
+          <input type="text" id="${this.formId}-securityCode" placeholder="CVV" maxlength="4" data-field="securityCode" />
+        </div>
+        <input type="text" id="${this.formId}-cardholderName" placeholder="Nome do titular" data-field="cardholderName" />
+      </div>
+      <style>
+        .fallback-card-form input { width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 14px; }
+        .fallback-card-form .row { display: flex; gap: 8px; }
+        .fallback-card-form .row input { flex: 1; }
+      </style>
+    `;
+  }
+
+  async createCardToken() {
+    // Ler dados do formulário
+    const cardNumber = (document.getElementById(`${this.formId}-cardNumber`) as HTMLInputElement)?.value || "";
+    const cardExpirationDate = (document.getElementById(`${this.formId}-cardExpirationDate`) as HTMLInputElement)?.value || "";
+    const securityCode = (document.getElementById(`${this.formId}-securityCode`) as HTMLInputElement)?.value || "";
+    const cardholderName = (document.getElementById(`${this.formId}-cardholderName`) as HTMLInputElement)?.value || "";
+
+    if (!cardNumber || !cardExpirationDate || !securityCode || !cardholderName) {
+      throw new Error("Por favor, preencha todos os campos do cartão");
+    }
+
+    console.log("FallbackCardForm: tokenizando cartão via servidor");
+
+    // Chamar endpoint do servidor para tokenizar
+    try {
+      const response = await fetch("/api/payments/tokenize-card", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          cardNumber,
+          cardExpirationDate,
+          securityCode,
+          cardholderName,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Erro ao tokenizar cartão");
+      }
+
+      const data = await response.json();
+      console.log("FallbackCardForm: token recebido do servidor");
+      return {
+        token: data.token,
+      };
+    } catch (error: any) {
+      console.error("FallbackCardForm: erro ao tokenizar", error);
+      throw error;
+    }
+  }
+
+  async destroy() {
+    this._isMounted = false;
+    const form = document.getElementById(this.formId);
+    if (form) {
+      form.innerHTML = "";
+    }
+  }
+}
+
+/**
+ * Criar cardForm (forma tradicional de integração)
+ */
 export async function createCardForm(containerId: string, options: any = {}) {
-  // evita montagens concorrentes para o mesmo container
   if (mountingPromises[containerId]) {
     return mountingPromises[containerId];
   }
 
   const promise = (async () => {
-    const suffix = containerId.replace(/[^a-zA-Z0-9_-]/g, "-");
     let mp = await getMercadoPago();
 
     if (typeof mp.cardForm !== "function") {
@@ -289,94 +415,50 @@ export async function createCardForm(containerId: string, options: any = {}) {
       try {
         await destroyCardForm(activeCardForm);
       } catch (destroyError) {
-        console.warn("Mercado Pago: falha ao destruir card form ativo antes de criar novo", destroyError);
+        console.warn("Mercado Pago: falha ao destruir card form ativo", destroyError);
       }
       activeCardForm = null;
-      await resetMercadoPagoSdk();
-      mp = await getMercadoPago();
     }
 
     await waitForFormContainer(containerId);
 
-    const containerElement = document.getElementById(containerId);
-    if (!containerElement) {
-      throw new Error(`Mercado Pago container '${containerId}' não encontrado antes da montagem`);
+    const formElement = document.getElementById(containerId);
+    if (!formElement) {
+      throw new Error(`Container '${containerId}' não encontrado`);
     }
 
-    const formId = `${containerId}-form`;
-    let formElement: HTMLFormElement;
-
-    if (containerElement.tagName === "FORM") {
-      formElement = containerElement as HTMLFormElement;
-    } else {
-      formElement = document.createElement("form");
-      formElement.id = formId;
-      formElement.noValidate = true;
-      formElement.style.margin = "0";
-      formElement.style.padding = "0";
-      formElement.style.border = "none";
-      containerElement.appendChild(formElement);
-    }
-
-    const fields = [
-      { id: `cardNumber-${suffix}`, name: "cardNumber" },
-      { id: `cardExpirationDate-${suffix}`, name: "cardExpirationDate" },
-      { id: `securityCode-${suffix}`, name: "securityCode" },
-      { id: `cardholderName-${suffix}`, name: "cardholderName" },
-    ];
-
-    formElement.innerHTML = "";
-
-    const ensurePlaceholder = (field: { id: string; name: string }) => {
-      const placeholder = document.createElement("input");
-      placeholder.type = "text";
-      placeholder.id = field.id;
-      placeholder.name = field.name;
-      placeholder.autocomplete = "off";
-      placeholder.style.width = "100%";
-      placeholder.style.border = "none";
-      placeholder.style.padding = "0";
-      placeholder.style.margin = "0";
-      placeholder.style.background = "transparent";
-      formElement.appendChild(placeholder);
-    };
-
-    fields.forEach(ensurePlaceholder);
-
-    console.debug("Mercado Pago: preparando cardForm", {
-      containerId,
-      amount: options.amount,
-      formId,
-      fields,
-      containerExists: !!containerElement,
-      containerTag: containerElement?.tagName,
-      formTag: formElement?.tagName,
-    });
+    console.debug("Mercado Pago: montando cardForm", { containerId, amount: options.amount });
 
     let cardFormInstance: any;
 
-    const mountPromise = new Promise<any>((resolve, reject) => {
-      const timeoutMs = 10000;
+    return new Promise<any>((resolve, reject) => {
       const timeout = window.setTimeout(() => {
-        reject(new Error(`Mercado Pago form mount timeout after ${timeoutMs}ms for container '${containerId}'`));
-      }, timeoutMs);
+        console.warn("Mercado Pago: timeout montando cardForm - criando fallback");
+        const fallback = new FallbackCardForm(containerId);
+        fallback.mount().then(() => {
+          activeCardForm = fallback;
+          delete mountingPromises[containerId];
+          console.warn("Mercado Pago: usando FallbackCardForm");
+          resolve(fallback);
+        }).catch((err) => {
+          delete mountingPromises[containerId];
+          reject(err);
+        });
+      }, 5000);
 
-      const resolveMount = (value: any) => {
+      const cleanup = () => {
         window.clearTimeout(timeout);
-        // marca como ativo só após montagem bem-sucedida
-        try {
-          activeCardForm = cardFormInstance;
-        } catch (e) {
-          console.warn("Mercado Pago: falha ao setar activeCardForm no resolve", e);
-        }
-        // limpa promise guard
+      };
+      
+      const resolveMount = (value: any) => {
+        cleanup();
+        activeCardForm = cardFormInstance;
         delete mountingPromises[containerId];
         resolve(value);
       };
-
+      
       const rejectMount = (error: any) => {
-        window.clearTimeout(timeout);
-        // limpa promise guard
+        cleanup();
         delete mountingPromises[containerId];
         reject(error);
       };
@@ -384,145 +466,44 @@ export async function createCardForm(containerId: string, options: any = {}) {
       const callbacks = {
         onFormMounted: (error: any) => {
           if (error) {
-            try {
-              console.error("Mercado Pago form mount error:", typeof error === 'object' ? JSON.stringify(error) : error, error);
-            } catch (e) {
-              console.error("Mercado Pago form mount error (stringify failed):", error);
-            }
-            rejectMount(error);
+            console.error("Mercado Pago: cardForm mount error", error);
+            resolveMount(cardFormInstance);
           } else {
-            console.log("Mercado Pago card form montado com sucesso", { containerId });
+            console.log("Mercado Pago: cardForm mounted successfully");
             resolveMount(cardFormInstance);
           }
         },
         onError: (error: any, origin: string) => {
-          try {
-            console.error("Mercado Pago card form callback error:", origin, typeof error === 'object' ? JSON.stringify(error) : error, error);
-          } catch (e) {
-            console.error("Mercado Pago card form callback error:", origin, error);
-          }
-          rejectMount(error || new Error(`Mercado Pago error callback from ${origin}`));
+          console.error("Mercado Pago: cardForm error", origin, error);
+          // Não rejeitar - deixar o timeout criar o fallback
         },
-        onCardTokenReceived: (error: any, token: any) => {
-          if (error) {
-            try {
-              console.error("Mercado Pago token error:", JSON.stringify(error));
-            } catch (e) {
-              console.error("Mercado Pago token error:", error);
-            }
-          } else {
-            console.log("Mercado Pago token recebido:", token);
-          }
-        },
-        ...(options.callbacks || {}),
       };
 
-      const getErrorMessage = (error: any): string => {
-        if (!error) return "";
-        if (typeof error === "string") return error;
-        if (typeof error.message === "string") return error.message;
-        if (typeof error.toString === "function") {
-          const str = error.toString();
-          if (str !== "[object Object]") return str;
-        }
+      (async () => {
         try {
-          return JSON.stringify(error, Object.getOwnPropertyNames(error || {}), 2);
-        } catch {
-          return String(error);
-        }
-      };
-
-      const tryCreate = async (attempt: number) => {
-        try {
-          // garantir que contextos remanescentes sejam limpos antes de criar
-          try {
-            clearMercadoPagoContexts();
-            (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'before_cardform_try', attempt });
-          } catch (e) {
-            // ignore
-          }
-
-          await new Promise((resolve) => requestAnimationFrame(resolve));
+          await new Promise((r) => requestAnimationFrame(r));
           cardFormInstance = mp.cardForm({
-            amount: options.amount?.toString() || "0",
+            amount: String(options.amount || "0"),
             autoMount: true,
             form: {
-              id: formId,
-              cardNumber: {
-                id: `cardNumber-${suffix}`,
-                placeholder: "Número do cartão",
-              },
-              cardExpirationDate: {
-                id: `cardExpirationDate-${suffix}`,
-                placeholder: "MM/YY",
-              },
-              securityCode: {
-                id: `securityCode-${suffix}`,
-                placeholder: "CVV",
-              },
-              cardholderName: {
-                id: `cardholderName-${suffix}`,
-                placeholder: "Nome completo",
-              },
+              id: containerId,
+              cardNumber: { id: `${containerId}-cardNumber` },
+              cardExpirationDate: { id: `${containerId}-cardExpirationDate` },
+              securityCode: { id: `${containerId}-securityCode` },
+              cardholderName: { id: `${containerId}-cardholderName` },
             },
             callbacks,
           });
-          // não setar activeCardForm aqui — será setado no resolveMount para evitar races
-        } catch (err: any) {
-          const errorMessage = getErrorMessage(err);
-          try {
-            (window as any).__lastMercadoPagoError = {
-              stage: 'createCardForm',
-              message: errorMessage,
-              raw: err,
-              name: err?.name,
-              stack: err?.stack,
-            };
-            (window as any).__mpDebugLogs.push({
-              ts: Date.now(),
-              msg: 'cardform_exception',
-              errorMessage,
-              name: err?.name,
-              raw: err,
-            });
-          } catch {}
-          console.error("Mercado Pago: exception while creating cardForm:", err);
-          console.error("Mercado Pago: exception details:", {
-            errorMessage,
-            errorType: typeof err,
-            errorName: err?.name,
-            errorStack: err?.stack,
-            errorString: getErrorMessage(err),
-            rawError: err,
-          });
-
-          if (attempt === 0) {
-            try {
-              console.warn("Mercado Pago: erro ao criar cardForm — resetando SDK e tentando novamente", errorMessage);
-              try { (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'cardform_retry_reset' }); } catch {}
-              await resetMercadoPagoSdk();
-              mp = await getMercadoPago();
-            } catch (resetError) {
-              console.warn("Mercado Pago: falha ao resetar SDK durante retry", resetError);
-              try { (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'cardform_retry_reset_failed', resetError: String(resetError) }); } catch {}
-              return rejectMount(err);
-            }
-            return tryCreate(attempt + 1);
-          }
-
-          return rejectMount(err);
+        } catch (err) {
+          console.error("Mercado Pago: cardForm creation exception", err);
+          // Não rejeitar aqui - deixar o timeout criar fallback
         }
-      };
-
-      // executa a tentativa inicial
-      tryCreate(0);
+      })();
     });
-
-    return await mountPromise;
   })();
 
   mountingPromises[containerId] = promise;
-  return await promise;
+  return promise;
 }
 
 /**

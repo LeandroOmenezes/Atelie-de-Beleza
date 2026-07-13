@@ -19,6 +19,68 @@ function initializeMercadoPago() {
 
 initializeMercadoPago();
 
+export interface TokenizeCardData {
+  cardNumber: string;
+  cardholderName: string;
+  cardExpirationDate: string;
+  securityCode: string;
+}
+
+export async function tokenizeCardWithMercadoPago(data: TokenizeCardData) {
+  const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
+
+  if (!accessToken) {
+    throw new Error("Mercado Pago não está configurado. Configure MERCADOPAGO_ACCESS_TOKEN nas variáveis de ambiente.");
+  }
+
+  const normalizedCardNumber = data.cardNumber.replace(/\s+/g, "");
+  const [expirationMonth, expirationYear] = data.cardExpirationDate.split("/");
+  const normalizedExpirationYear = expirationYear?.length === 2 ? `20${expirationYear}` : expirationYear;
+
+  if (!normalizedCardNumber || !data.cardholderName || !expirationMonth || !normalizedExpirationYear || !data.securityCode) {
+    throw new Error("Dados do cartão incompletos para tokenização");
+  }
+
+  const response = await fetch("https://api.mercadopago.com/v1/card_tokens", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Access-Token": accessToken,
+    },
+    body: JSON.stringify({
+      card_number: normalizedCardNumber,
+      cardholder: {
+        name: data.cardholderName,
+      },
+      security_code: data.securityCode,
+      expiration_month: Number(expirationMonth),
+      expiration_year: Number(normalizedExpirationYear),
+    }),
+  });
+
+  if (!response.ok) {
+    let errorMessage = "Erro ao tokenizar cartão";
+    try {
+      const errorBody = await response.json();
+      errorMessage = errorBody?.message || errorBody?.error || errorMessage;
+    } catch {
+      // ignore
+    }
+
+    throw new Error(errorMessage);
+  }
+
+  const tokenData = await response.json();
+  if (!tokenData?.id) {
+    throw new Error("Mercado Pago não retornou um token válido");
+  }
+
+  return {
+    token: tokenData.id as string,
+    id: tokenData.id as string,
+  };
+}
+
 /**
  * Cria um pagamento avulso para um agendamento específico
  * @param amount - Valor do pagamento em reais

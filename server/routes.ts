@@ -2153,9 +2153,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { id } = req.params;
-      const { token } = req.body;
+      const { token, cardNumber, cardholderName, cardExpirationDate, securityCode } = req.body;
 
-      if (!token) {
+      let paymentToken = typeof token === "string" ? token : "";
+
+      if (!paymentToken && (cardNumber || cardholderName || cardExpirationDate || securityCode)) {
+        try {
+          const tokenizedCard = await mercadoPago.tokenizeCardWithMercadoPago({
+            cardNumber,
+            cardholderName,
+            cardExpirationDate,
+            securityCode,
+          });
+          paymentToken = tokenizedCard.token;
+        } catch (tokenizationError: any) {
+          return res.status(400).json({ message: tokenizationError?.message || "Erro ao tokenizar cartão" });
+        }
+      }
+
+      if (!paymentToken) {
         return res.status(400).json({ message: "Token de cartão é obrigatório" });
       }
 
@@ -2173,7 +2189,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create payment on Mercado Pago
       const paymentResult = await mercadoPago.createAppointmentPayment(
         appointment.paymentAmount!,
-        token,
+        paymentToken,
         `Serviço agendado`,
         appointment.email,
         appointmentId
@@ -2356,43 +2372,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Dados do cartão inválidos" });
       }
 
-      // Extract expiration month and year
-      const [expirationMonth, expirationYear] = cardExpirationDate.split("/");
-      const fullYear = expirationYear.length === 2 ? `20${expirationYear}` : expirationYear;
+      try {
+        const tokenData = await mercadoPago.tokenizeCardWithMercadoPago({
+          cardNumber,
+          cardholderName,
+          cardExpirationDate,
+          securityCode,
+        });
 
-      // Call Mercado Pago Card Tokens API
-      const publicKey = process.env.MERCADOPAGO_PUBLIC_KEY;
-      const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
-
-      if (!publicKey || !accessToken) {
-        return res.status(503).json({ message: "Mercado Pago não está configurado" });
+        res.json({ token: tokenData.token });
+      } catch (tokenizationError: any) {
+        console.error("Mercado Pago tokenization error:", tokenizationError);
+        return res.status(400).json({ message: tokenizationError?.message || "Erro ao tokenizar cartão" });
       }
-
-      const tokenResponse = await fetch("https://api.mercadopago.com/v1/card_tokens", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Access-Token": accessToken,
-        },
-        body: JSON.stringify({
-          card_number: cardNumber.replace(/\s/g, ""),
-          cardholder: {
-            name: cardholderName,
-          },
-          security_code: securityCode,
-          expiration_month: parseInt(expirationMonth),
-          expiration_year: parseInt(fullYear),
-        }),
-      });
-
-      if (!tokenResponse.ok) {
-        const error = await tokenResponse.json();
-        console.error("Mercado Pago tokenization error:", error);
-        return res.status(400).json({ message: "Erro ao tokenizar cartão" });
-      }
-
-      const tokenData = await tokenResponse.json();
-      res.json({ token: tokenData.id });
     } catch (error: any) {
       console.error("Erro ao tokenizar cartão:", error);
       res.status(500).json({ message: "Erro ao processar cartão" });
@@ -2405,10 +2397,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "É necessário estar logado" });
       }
 
-      const { planId, token } = req.body;
+      const { planId, token, cardNumber, cardholderName, cardExpirationDate, securityCode } = req.body;
       const userId = (req.user as any).id;
 
-      if (!planId || !token) {
+      let paymentToken = typeof token === "string" ? token : "";
+
+      if (!paymentToken && (cardNumber || cardholderName || cardExpirationDate || securityCode)) {
+        try {
+          const tokenizedCard = await mercadoPago.tokenizeCardWithMercadoPago({
+            cardNumber,
+            cardholderName,
+            cardExpirationDate,
+            securityCode,
+          });
+          paymentToken = tokenizedCard.token;
+        } catch (tokenizationError: any) {
+          return res.status(400).json({ message: tokenizationError?.message || "Erro ao tokenizar cartão" });
+        }
+      }
+
+      if (!planId || !paymentToken) {
         return res.status(400).json({ message: "Dados inválidos" });
       }
 
@@ -2420,7 +2428,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create preapproval on Mercado Pago
       const user = await storage.getUser(userId);
       const preapprovalResult = await mercadoPago.createPreapproval(
-        token,
+        paymentToken,
         plan.price,
         plan.name,
         user?.email || "",

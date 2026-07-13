@@ -45,7 +45,8 @@ export async function tokenizeCardWithMercadoPago(data: TokenizeCardData) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Access-Token": accessToken,
+      "Accept": "application/json",
+      "Authorization": `Bearer ${accessToken}`,
     },
     body: JSON.stringify({
       card_number: normalizedCardNumber,

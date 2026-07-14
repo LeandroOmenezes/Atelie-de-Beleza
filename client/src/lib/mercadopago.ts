@@ -171,6 +171,11 @@ function applyMercadoPagoMonkeyPatch(): void {
   }
 }
 
+function isDuplicateContextError(error: any): boolean {
+  const message = typeof error?.message === "string" ? error.message : String(error);
+  return /Context .* already exists|already exists/i.test(message);
+}
+
 export async function resetMercadoPagoSdk() {
   console.warn("Mercado Pago: resetando SDK");
   mpInstance = null;
@@ -406,6 +411,7 @@ export async function createCardForm(containerId: string, options: any = {}) {
 
   const promise = (async () => {
     let mp = await getMercadoPago();
+    let cardFormInstance: any = null;
 
     if (typeof mp.cardForm !== "function") {
       throw new Error("Mercado Pago SDK cardForm não está disponível");
@@ -420,31 +426,32 @@ export async function createCardForm(containerId: string, options: any = {}) {
       activeCardForm = null;
     }
 
-    await waitForFormContainer(containerId);
+      // Limpa eventuais contexts remanescentes do SDK antes de criar um novo form.
+      clearMercadoPagoContexts();
 
-    const formElement = document.getElementById(containerId);
-    if (!formElement) {
-      throw new Error(`Container '${containerId}' não encontrado`);
-    }
-
-    console.debug("Mercado Pago: montando cardForm", { containerId, amount: options.amount });
-
-    let cardFormInstance: any;
+      await waitForFormContainer(containerId);
 
     return new Promise<any>((resolve, reject) => {
-      const timeout = window.setTimeout(() => {
-        console.warn("Mercado Pago: timeout montando cardForm - criando fallback");
+      const mountFallback = async (reason: string, err?: any) => {
+        cleanup();
+        console.warn("Mercado Pago: mount fallback card form", reason, err);
+
         const fallback = new FallbackCardForm(containerId);
-        fallback.mount().then(() => {
+        try {
+          await fallback.mount();
           activeCardForm = fallback;
           delete mountingPromises[containerId];
           console.warn("Mercado Pago: usando FallbackCardForm");
           resolve(fallback);
-        }).catch((err) => {
+        } catch (fallbackError) {
           delete mountingPromises[containerId];
-          reject(err);
-        });
-      }, 5000);
+          reject(fallbackError);
+        }
+      };
+
+      const timeout = window.setTimeout(() => {
+        mountFallback("timeout");
+      }, 2000);
 
       const cleanup = () => {
         window.clearTimeout(timeout);
@@ -452,7 +459,7 @@ export async function createCardForm(containerId: string, options: any = {}) {
       
       const resolveMount = (value: any) => {
         cleanup();
-        activeCardForm = cardFormInstance;
+        activeCardForm = value;
         delete mountingPromises[containerId];
         resolve(value);
       };
@@ -465,9 +472,9 @@ export async function createCardForm(containerId: string, options: any = {}) {
 
       const callbacks = {
         onFormMounted: (error: any) => {
-          if (error) {
+          if (error || !cardFormInstance) {
             console.error("Mercado Pago: cardForm mount error", error);
-            resolveMount(cardFormInstance);
+            mountFallback("onFormMounted_error", error).catch(rejectMount);
           } else {
             console.log("Mercado Pago: cardForm mounted successfully");
             resolveMount(cardFormInstance);
@@ -475,28 +482,52 @@ export async function createCardForm(containerId: string, options: any = {}) {
         },
         onError: (error: any, origin: string) => {
           console.error("Mercado Pago: cardForm error", origin, error);
-          // Não rejeitar - deixar o timeout criar o fallback
+          if (isDuplicateContextError(error)) {
+            console.warn("Mercado Pago: erro duplicado de contexto detectado, usando fallback");
+            mountFallback("onError_duplicate_context", { origin, error }).catch(rejectMount);
+          }
         },
+      };
+
+      const createCardFormInstance = async () => {
+        let retry = false;
+
+        while (true) {
+          try {
+            await new Promise((r) => requestAnimationFrame(r));
+            return mp.cardForm({
+              amount: String(options.amount || "0"),
+              autoMount: true,
+              form: {
+                id: containerId,
+                cardNumber: { id: `${containerId}-cardNumber` },
+                cardExpirationDate: { id: `${containerId}-cardExpirationDate` },
+                securityCode: { id: `${containerId}-securityCode` },
+                cardholderName: { id: `${containerId}-cardholderName` },
+              },
+              callbacks,
+            });
+          } catch (err: any) {
+            console.error("Mercado Pago: cardForm creation exception", err);
+            if (!retry && isDuplicateContextError(err)) {
+              retry = true;
+              console.warn("Mercado Pago: conflito de contextos detectado, resetando SDK e tentando novamente");
+              await resetMercadoPagoSdk();
+              await loadMercadoPagoSdk();
+              mp = await getMercadoPago();
+              continue;
+            }
+            throw err;
+          }
+        }
       };
 
       (async () => {
         try {
-          await new Promise((r) => requestAnimationFrame(r));
-          cardFormInstance = mp.cardForm({
-            amount: String(options.amount || "0"),
-            autoMount: true,
-            form: {
-              id: containerId,
-              cardNumber: { id: `${containerId}-cardNumber` },
-              cardExpirationDate: { id: `${containerId}-cardExpirationDate` },
-              securityCode: { id: `${containerId}-securityCode` },
-              cardholderName: { id: `${containerId}-cardholderName` },
-            },
-            callbacks,
-          });
+          cardFormInstance = await createCardFormInstance();
         } catch (err) {
           console.error("Mercado Pago: cardForm creation exception", err);
-          // Não rejeitar aqui - deixar o timeout criar fallback
+          await mountFallback("create_error", err);
         }
       })();
     });

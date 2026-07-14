@@ -1,8 +1,9 @@
-import { MercadoPagoConfig, Payment, PreApproval } from "mercadopago";
+import { MercadoPagoConfig, Payment, PreApproval, CardToken } from "mercadopago";
 
 // Initialize Mercado Pago SDK
 let payment: any = null;
 let preApproval: any = null;
+let cardTokenClient: any = null;
 
 function initializeMercadoPago() {
   if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
@@ -15,6 +16,7 @@ function initializeMercadoPago() {
 
   payment = new Payment(client);
   preApproval = new PreApproval(client);
+  cardTokenClient = new CardToken(client);
 }
 
 initializeMercadoPago();
@@ -26,12 +28,28 @@ export interface TokenizeCardData {
   securityCode: string;
 }
 
-export async function tokenizeCardWithMercadoPago(data: TokenizeCardData) {
+function getMercadoPagoClient() {
   const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
 
   if (!accessToken) {
     throw new Error("Mercado Pago não está configurado. Configure MERCADOPAGO_ACCESS_TOKEN nas variáveis de ambiente.");
   }
+
+  if (!cardTokenClient) {
+    const client = new MercadoPagoConfig({
+      accessToken,
+    });
+    cardTokenClient = new CardToken(client);
+  }
+
+  return {
+    client: cardTokenClient,
+    isSandbox: accessToken.startsWith("TEST-"),
+  };
+}
+
+export async function tokenizeCardWithMercadoPago(data: TokenizeCardData) {
+  const { client, isSandbox } = getMercadoPagoClient();
 
   const normalizedCardNumber = data.cardNumber.replace(/\s+/g, "");
   const [expirationMonth, expirationYear] = data.cardExpirationDate.split("/");
@@ -41,45 +59,39 @@ export async function tokenizeCardWithMercadoPago(data: TokenizeCardData) {
     throw new Error("Dados do cartão incompletos para tokenização");
   }
 
-  const response = await fetch("https://api.mercadopago.com/v1/card_tokens", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      "Authorization": `Bearer ${accessToken}`,
+  const body = {
+    card_number: normalizedCardNumber,
+    expiration_month: expirationMonth.padStart(2, "0"),
+    expiration_year: normalizedExpirationYear,
+    security_code: data.securityCode,
+    cardholder: {
+      name: data.cardholderName,
     },
-    body: JSON.stringify({
-      card_number: normalizedCardNumber,
-      cardholder: {
-        name: data.cardholderName,
-      },
-      security_code: data.securityCode,
-      expiration_month: Number(expirationMonth),
-      expiration_year: Number(normalizedExpirationYear),
-    }),
-  });
+  };
 
-  if (!response.ok) {
-    let errorMessage = "Erro ao tokenizar cartão";
-    try {
-      const errorBody = await response.json();
-      errorMessage = errorBody?.message || errorBody?.error || errorMessage;
-    } catch {
-      // ignore
+  try {
+    const tokenData = await client.create({
+      body,
+      requestOptions: {
+        testToken: isSandbox,
+      },
+    });
+
+    if (!tokenData?.id) {
+      throw new Error("Mercado Pago não retornou um token válido");
     }
 
-    throw new Error(errorMessage);
+    return {
+      token: tokenData.id as string,
+      id: tokenData.id as string,
+    };
+  } catch (error: any) {
+    const errorCode = error?.code || error?.error || "unknown_error";
+    const errorCause = Array.isArray(error?.cause) ? error.cause.map((cause: any) => cause.description).join("; ") : undefined;
+    const formattedError = [error?.message || "Erro ao tokenizar cartão", errorCode, errorCause].filter(Boolean).join(" - ");
+    console.error("Mercado Pago tokenization SDK error:", error);
+    throw new Error(formattedError);
   }
-
-  const tokenData = await response.json();
-  if (!tokenData?.id) {
-    throw new Error("Mercado Pago não retornou um token válido");
-  }
-
-  return {
-    token: tokenData.id as string,
-    id: tokenData.id as string,
-  };
 }
 
 /**
@@ -109,7 +121,7 @@ export async function createAppointmentPayment(
         token: token,
         description: `Agendamento #${appointmentId}: ${description}`,
         installments: 1,
-        payment_method_id: "debit_card",
+        payment_method_id: "credit_card",
         payer: {
           email: email,
         },

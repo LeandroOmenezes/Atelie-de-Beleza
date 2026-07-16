@@ -38,7 +38,7 @@ const TABS = [
     id: "vendas",
     label: "Gestão de Vendas",
     icon: TrendingUp,
-    description: "Registre vendas e acompanhe o desempenho financeiro.",
+    description: "Registre vendas manuais e acompanhe lançamentos automáticos vindos de agendamentos.",
   },
   {
     id: "relatorio",

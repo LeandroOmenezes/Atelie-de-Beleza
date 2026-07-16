@@ -96,6 +96,7 @@ export const appointments = pgTable("appointments", {
   time: text("time").notNull(),
   notes: text("notes"),
   status: text("status").default("pending"),
+  seenByAdmin: boolean("seen_by_admin").default(false).notNull(),
   seenByProfessional: boolean("seen_by_professional").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   // Payment fields
@@ -123,7 +124,7 @@ export const insertAppointmentSchema = createInsertSchema(appointments, {
   mpPaymentId: z.string().optional(),
   holdExpiresAt: z.date().optional(),
   userSubscriptionId: z.number().int().optional(),
-}).omit({ id: true, status: true, createdAt: true });
+}).omit({ id: true, status: true, seenByAdmin: true, seenByProfessional: true, createdAt: true });
 
 // === Reviews ===
 export const reviews = pgTable("reviews", {
@@ -182,6 +183,7 @@ export const reviewLikes = pgTable("review_likes", {
 // === Sales ===
 export const sales = pgTable("sales", {
   id: serial("id").primaryKey(),
+  appointmentId: integer("appointment_id").unique(),
   clientName: text("client_name").notNull(),
   serviceId: integer("service_id").notNull(),
   serviceName: text("service_name").notNull(),
@@ -199,6 +201,7 @@ export const sales = pgTable("sales", {
 });
 
 export const insertSaleSchema = createInsertSchema(sales, {
+  appointmentId: z.number().int().optional(),
   clientName: z.string().min(3),
   serviceId: z.string(),
   serviceName: z.string().min(3),
@@ -235,6 +238,7 @@ export const insertBannerSchema = createInsertSchema(banner, {
 export const footer = pgTable("footer", {
   id: serial("id").primaryKey(),
   businessName: text("business_name").notNull(),
+  cnpj: text("cnpj"),
   address: text("address").notNull(),
   phone: text("phone").notNull(),
   email: text("email").notNull(),
@@ -251,6 +255,7 @@ export const footer = pgTable("footer", {
 
 export const insertFooterSchema = createInsertSchema(footer, {
   businessName: z.string().min(1, "Nome do negócio é obrigatório"),
+  cnpj: z.string().regex(/^(\d{14}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})$/, "CNPJ inválido").optional().or(z.literal("")),
   address: z.string().min(1, "Endereço é obrigatório"),
   phone: z.string().min(1, "Telefone é obrigatório"),
   email: z.string().email("Email inválido"),

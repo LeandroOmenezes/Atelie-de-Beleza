@@ -172,6 +172,16 @@ export default function SalesForm() {
     <>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Venda manual</p>
+              <p className="text-xs text-slate-500">Este lançamento não vem de agendamento automático.</p>
+            </div>
+            <span className="inline-flex items-center rounded-full bg-slate-200 px-2 py-1 text-xs font-medium text-slate-700">
+              Manual
+            </span>
+          </div>
+
           <FormField
             control={form.control}
             name="clientName"

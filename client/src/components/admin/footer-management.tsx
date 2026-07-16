@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Save, Eye, ExternalLink, MapPin, Phone, Mail, Clock, MessageCircle } from "lucide-react";
-import { maskPhone } from "@/lib/utils";
+import { maskPhone, unmaskedPhone } from "@/lib/utils";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { apiRequest } from "@/lib/queryClient";
@@ -25,6 +25,7 @@ export default function FooterManagement() {
     resolver: zodResolver(insertFooterSchema),
     defaultValues: {
       businessName: "",
+      cnpj: "",
       address: "",
       phone: "",
       email: "",
@@ -42,10 +43,11 @@ export default function FooterManagement() {
     if (footer) {
       form.reset({
         businessName: footer.businessName,
+        cnpj: footer.cnpj || "",
         address: footer.address,
         phone: footer.phone,
         email: footer.email,
-        whatsapp: footer.whatsapp,
+        whatsapp: maskPhone(footer.whatsapp),
         workingHours: footer.workingHours,
         facebookUrl: footer.facebookUrl || "",
         instagramUrl: footer.instagramUrl || "",
@@ -77,7 +79,10 @@ export default function FooterManagement() {
   });
 
   const onSubmit = (data: InsertFooter) => {
-    updateFooterMutation.mutate(data);
+    updateFooterMutation.mutate({
+      ...data,
+      whatsapp: unmaskedPhone(data.whatsapp),
+    });
   };
 
   if (isLoading) {
@@ -133,6 +138,12 @@ export default function FooterManagement() {
                 <div>
                   <h3 className="text-lg font-semibold mb-3">{footer.businessName}</h3>
                   <div className="space-y-2 text-gray-300">
+                    {footer.cnpj && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">CNPJ:</span>
+                        <span className="text-sm">{footer.cnpj}</span>
+                      </div>
+                    )}
                     <div className="flex items-start gap-2">
                       <MapPin className="w-4 h-4 mt-1 flex-shrink-0" />
                       <span className="text-sm">{footer.address}</span>
@@ -223,6 +234,23 @@ export default function FooterManagement() {
 
                 <FormField
                   control={form.control}
+                  name="cnpj"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>CNPJ</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="00.000.000/0000-00"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
                   name="address"
                   render={({ field }) => (
                     <FormItem>
@@ -283,11 +311,12 @@ export default function FooterManagement() {
                     name="whatsapp"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>WhatsApp (apenas números)</FormLabel>
+                        <FormLabel>WhatsApp</FormLabel>
                         <FormControl>
                           <Input 
-                            placeholder="11964027914" 
-                            {...field} 
+                            placeholder="(11) 96402-7914" 
+                            {...field}
+                            onChange={(e) => field.onChange(maskPhone(e.target.value))}
                           />
                         </FormControl>
                         <FormMessage />

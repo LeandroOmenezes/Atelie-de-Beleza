@@ -195,6 +195,8 @@ export interface IStorage {
   deleteProfessional(id: number): Promise<boolean>;
   uploadProfessionalPhoto(id: number, photoUrl: string, photoMimeType: string): Promise<Professional | undefined>;
   getAppointmentsByProfessionalId(professionalId: number): Promise<Appointment[]>;
+  getUnseenCountForAdmin(): Promise<number>;
+  markAppointmentsSeenByAdmin(): Promise<void>;
   getUnseenCountForProfessional(professionalId: number): Promise<number>;
   markAppointmentsSeenByProfessional(professionalId: number): Promise<void>;
 
@@ -421,6 +423,7 @@ export class MemStorage implements IStorage {
     this.footerConfig = {
       id: 1,
       businessName: "Salão de Beleza Premium",
+      cnpj: "12.345.678/0001-90",
       address: "Rua das Flores, 123 - Centro, São Paulo - SP, 01234-567",
       phone: "(11) 3456-7890",
       email: "contato@salaopremium.com.br",
@@ -874,7 +877,8 @@ export class MemStorage implements IStorage {
       time: insertAppointment.time,
       notes: insertAppointment.notes ?? null,
       status: "pending",
-      seenByProfessional: insertAppointment.seenByProfessional ?? false,
+      seenByAdmin: false,
+      seenByProfessional: false,
       createdAt: now,
       // Payment defaults
       requiresPayment: insertAppointment.requiresPayment ?? false,
@@ -973,6 +977,14 @@ export class MemStorage implements IStorage {
   }
 
   async createSale(insertSale: InsertSale): Promise<Sale> {
+    const appointmentId = insertSale.appointmentId ? Number(insertSale.appointmentId) : null;
+    if (appointmentId !== null) {
+      const existingSale = Array.from(this.sales.values()).find((sale) => sale.appointmentId === appointmentId);
+      if (existingSale) {
+        return existingSale;
+      }
+    }
+
     const id = this.currentSaleId++;
     const service = await this.getServiceById(parseInt(insertSale.serviceId));
     const now = new Date();
@@ -984,6 +996,7 @@ export class MemStorage implements IStorage {
     const sale: Sale = {
       ...insertSale,
       id,
+      appointmentId,
       serviceName: service ? service.name : "Unknown Service",
       serviceId,
       categoryId: service?.categoryId ?? null,
@@ -1008,6 +1021,7 @@ export class MemStorage implements IStorage {
     const updated: Sale = {
       ...sale,
       ...data,
+      appointmentId: data.appointmentId !== undefined ? data.appointmentId : sale.appointmentId,
       serviceId: data.serviceId ? parseInt(data.serviceId) : sale.serviceId,
       professionalId: profId !== undefined ? profId : sale.professionalId,
       professionalName: profId !== undefined ? (professional?.name ?? null) : sale.professionalName,
@@ -1089,6 +1103,7 @@ export class MemStorage implements IStorage {
     this.footerConfig = {
       id: 1,
       ...footer,
+      cnpj: footer.cnpj || null,
       facebookUrl: footer.facebookUrl ?? null,
       instagramUrl: footer.instagramUrl ?? null,
       tiktokUrl: footer.tiktokUrl ?? null,
@@ -1198,6 +1213,8 @@ export class MemStorage implements IStorage {
   async deleteProfessional(id: number): Promise<boolean> { return false; }
   async uploadProfessionalPhoto(id: number, photoUrl: string, photoMimeType: string): Promise<Professional | undefined> { return undefined; }
   async getAppointmentsByProfessionalId(professionalId: number): Promise<Appointment[]> { return []; }
+  async getUnseenCountForAdmin(): Promise<number> { return 0; }
+  async markAppointmentsSeenByAdmin(): Promise<void> {}
   async getUnseenCountForProfessional(professionalId: number): Promise<number> { return 0; }
   async markAppointmentsSeenByProfessional(professionalId: number): Promise<void> {}
 
@@ -1740,6 +1757,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createSale(insertSale: InsertSale): Promise<Sale> {
+    const appointmentId = insertSale.appointmentId ? Number(insertSale.appointmentId) : null;
+    if (appointmentId !== null) {
+      const [existingSale] = await db.select().from(sales).where(eq(sales.appointmentId, appointmentId)).limit(1);
+      if (existingSale) {
+        return existingSale;
+      }
+    }
+
     const serviceId = Number(insertSale.serviceId);
     const service = await this.getServiceById(serviceId);
     const serviceName = service ? service.name : "Serviço";
@@ -1748,6 +1773,7 @@ export class DatabaseStorage implements IStorage {
     const professional = profId ? await this.getProfessionalById(profId) : null;
     const [sale] = await db.insert(sales).values({
       ...insertSale,
+      appointmentId,
       serviceId,
       serviceName,
       categoryId: category?.id ?? null,
@@ -1761,6 +1787,7 @@ export class DatabaseStorage implements IStorage {
 
   async updateSale(id: number, data: Partial<InsertSale>): Promise<Sale | undefined> {
     const updateData: Record<string, unknown> = {};
+    if (data.appointmentId !== undefined) updateData.appointmentId = data.appointmentId;
     if (data.clientName !== undefined) updateData.clientName = data.clientName;
     if (data.amount !== undefined) updateData.amount = data.amount;
     if (data.date !== undefined) updateData.date = data.date;
@@ -2001,6 +2028,19 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(appointments)
       .where(eq(appointments.professionalId, professionalId))
       .orderBy(desc(appointments.createdAt));
+  }
+
+  async getUnseenCountForAdmin(): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)` })
+      .from(appointments)
+      .where(eq(appointments.seenByAdmin, false));
+    return Number(result[0]?.count ?? 0);
+  }
+
+  async markAppointmentsSeenByAdmin(): Promise<void> {
+    await db.update(appointments)
+      .set({ seenByAdmin: true })
+      .where(eq(appointments.seenByAdmin, false));
   }
 
   async getUnseenCountForProfessional(professionalId: number): Promise<number> {

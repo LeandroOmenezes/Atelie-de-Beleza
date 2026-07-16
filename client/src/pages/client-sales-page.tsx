@@ -43,7 +43,7 @@ export default function ClientSalesPage() {
             <div className="text-center mb-10">
               <h2 className="text-3xl font-bold text-gray-800 mb-4">Gestão de Clientes e Vendas</h2>
               <p className="text-gray-700 max-w-2xl mx-auto">
-                Gerencie seus clientes, registre vendas e acompanhe o desempenho do seu negócio com eficiência.
+                Gerencie seus clientes, registre vendas manuais e acompanhe automaticamente os lançamentos oriundos de agendamentos.
               </p>
             </div>
 
@@ -67,6 +67,10 @@ export default function ClientSalesPage() {
               
               <TabsContent value="sales">
                 <div className="mb-8">
+                  <div className="mb-5 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                    <span className="text-sm font-semibold text-slate-800">Gestão de Vendas</span>
+                    <span className="rounded-full bg-slate-200 px-2 py-1 text-xs font-medium text-slate-700">Manual + Automática</span>
+                  </div>
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     {/* Register Sale Form */}
                     <div className="lg:col-span-1">

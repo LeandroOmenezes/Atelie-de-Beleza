@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Ban, Pencil, AlertTriangle } from "lucide-react";
 
 type FilterPeriod = "day" | "week" | "month" | "all";
+type OriginFilter = "all" | "automatic" | "manual";
 
 const PAYMENT_METHODS = [
   { id: "cash", name: "Dinheiro" },
@@ -34,6 +35,7 @@ function localDateStr() {
 export default function SalesHistory() {
   const { toast } = useToast();
   const [filterPeriod, setFilterPeriod] = useState<FilterPeriod>("all");
+  const [originFilter, setOriginFilter] = useState<OriginFilter>("all");
 
   const [cancelDialog, setCancelDialog] = useState<{ open: boolean; sale: Sale | null }>({ open: false, sale: null });
   const [cancelReason, setCancelReason] = useState("");
@@ -112,7 +114,12 @@ export default function SalesHistory() {
   };
 
   const filteredSales = getFilteredSales();
-  const activeSales = filteredSales.filter(s => s.status !== "cancelled");
+  const originFilteredSales = filteredSales.filter((sale) => {
+    if (originFilter === "automatic") return !!sale.appointmentId;
+    if (originFilter === "manual") return !sale.appointmentId;
+    return true;
+  });
+  const activeSales = originFilteredSales.filter(s => s.status !== "cancelled");
 
   const calculateTotal = (list: Sale[]) =>
     list.filter(s => s.status !== "cancelled").reduce((t, s) => t + s.amount, 0);
@@ -126,9 +133,17 @@ export default function SalesHistory() {
       case "credit": return "Cartão de Crédito";
       case "debit": return "Cartão de Débito";
       case "pix": return "PIX";
+      case "appointment": return "Agendamento";
       default: return method;
     }
   };
+
+  const getSaleOrigin = (sale: Sale) => (sale.appointmentId ? "Automática" : "Manual");
+
+  const getSaleOriginClass = (sale: Sale) =>
+    sale.appointmentId
+      ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+      : "bg-slate-100 text-slate-600 border-slate-200";
 
   function openCancelDialog(sale: Sale) {
     setCancelDialog({ open: true, sale });
@@ -169,12 +184,57 @@ export default function SalesHistory() {
             );
           })}
         </div>
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
+          <Button
+            variant={originFilter === "all" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setOriginFilter("all")}
+            className={`${originFilter === "all" ? "bg-emerald-500 text-white" : "bg-white border border-gray-200 text-gray-700"} text-xs sm:text-sm px-2 sm:px-3`}
+          >
+            Todas
+          </Button>
+          <Button
+            variant={originFilter === "automatic" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setOriginFilter("automatic")}
+            className={`${originFilter === "automatic" ? "bg-emerald-500 text-white" : "bg-white border border-gray-200 text-gray-700"} text-xs sm:text-sm px-2 sm:px-3`}
+          >
+            Automáticas
+          </Button>
+          <Button
+            variant={originFilter === "manual" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setOriginFilter("manual")}
+            className={`${originFilter === "manual" ? "bg-emerald-500 text-white" : "bg-white border border-gray-200 text-gray-700"} text-xs sm:text-sm px-2 sm:px-3`}
+          >
+            Manuais
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <div className="bg-white p-3 rounded-lg shadow-sm border">
+          <div className="text-xs text-gray-500 uppercase font-semibold">Total</div>
+          <div className="text-xl font-bold text-gray-900">{originFilteredSales.length}</div>
+        </div>
+        <div className="bg-white p-3 rounded-lg shadow-sm border">
+          <div className="text-xs text-gray-500 uppercase font-semibold">Automáticas</div>
+          <div className="text-xl font-bold text-emerald-600">{originFilteredSales.filter(s => !!s.appointmentId).length}</div>
+        </div>
+        <div className="bg-white p-3 rounded-lg shadow-sm border">
+          <div className="text-xs text-gray-500 uppercase font-semibold">Manuais</div>
+          <div className="text-xl font-bold text-slate-600">{originFilteredSales.filter(s => !s.appointmentId).length}</div>
+        </div>
+        <div className="bg-white p-3 rounded-lg shadow-sm border">
+          <div className="text-xs text-gray-500 uppercase font-semibold">Canceladas</div>
+          <div className="text-xl font-bold text-red-600">{originFilteredSales.filter(s => (s.status ?? "active") === "cancelled").length}</div>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
         {isLoading ? (
           <div className="text-center py-4">Carregando...</div>
-        ) : filteredSales.length === 0 ? (
+        ) : originFilteredSales.length === 0 ? (
           <div className="text-center py-4 text-gray-500">Nenhuma venda encontrada no período selecionado.</div>
         ) : (
           <table className="min-w-full bg-white border-collapse">
@@ -183,6 +243,7 @@ export default function SalesHistory() {
                 <th className="py-3 px-4 text-left text-gray-700 font-medium">Data</th>
                 <th className="py-3 px-4 text-left text-gray-700 font-medium">Cliente</th>
                 <th className="py-3 px-4 text-left text-gray-700 font-medium">Serviço</th>
+                <th className="py-3 px-4 text-left text-gray-700 font-medium">Origem</th>
                 <th className="py-3 px-4 text-left text-gray-700 font-medium">Valor</th>
                 <th className="py-3 px-4 text-left text-gray-700 font-medium">Pagamento</th>
                 <th className="py-3 px-4 text-left text-gray-700 font-medium">Obs.</th>
@@ -190,7 +251,7 @@ export default function SalesHistory() {
               </tr>
             </thead>
             <tbody>
-              {filteredSales.map((sale) => {
+              {originFilteredSales.map((sale) => {
                 const cancelled = (sale.status ?? "active") === "cancelled";
                 return (
                   <tr
@@ -200,6 +261,11 @@ export default function SalesHistory() {
                     <td className={`py-3 px-4 text-gray-700 ${cancelled ? "line-through" : ""}`}>{formatDate(sale.date)}</td>
                     <td className={`py-3 px-4 text-gray-700 ${cancelled ? "line-through" : ""}`}>{sale.clientName}</td>
                     <td className={`py-3 px-4 text-gray-700 ${cancelled ? "line-through" : ""}`}>{sale.serviceName}</td>
+                    <td className="py-3 px-4">
+                      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium ${getSaleOriginClass(sale)}`}>
+                        {getSaleOrigin(sale)}
+                      </span>
+                    </td>
                     <td className={`py-3 px-4 font-medium ${cancelled ? "line-through text-gray-400" : "text-gray-700"}`}>
                       R${sale.amount.toFixed(2)}
                     </td>

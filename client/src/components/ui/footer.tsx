@@ -3,6 +3,7 @@ import { MapPin, Phone, Clock, Mail, MessageCircle, Facebook, Instagram, Music, 
 import { useQuery } from "@tanstack/react-query";
 import { Footer as FooterType } from "@shared/schema";
 import { useSiteConfig } from "@/hooks/use-site-config";
+import { unmaskedPhone } from "@/lib/utils";
 
 export default function Footer() {
   const { data: footerData } = useQuery<FooterType>({
@@ -13,6 +14,7 @@ export default function Footer() {
   // Fallback data in case footer config is not available
   const footer = footerData || {
     businessName: "Salão de Beleza Premium",
+    cnpj: "",
     address: "Rua das Flores, 123 - Centro, São Paulo - SP",
     phone: "(11) 3456-7890",
     email: "contato@salaopremium.com.br",
@@ -26,7 +28,7 @@ export default function Footer() {
 
   const openWhatsApp = () => {
     const message = encodeURIComponent("Olá! Gostaria de agendar um horário.");
-    window.open(`https://wa.me/55${footer.whatsapp}?text=${message}`, '_blank');
+    window.open(`https://wa.me/55${unmaskedPhone(footer.whatsapp)}?text=${message}`, '_blank');
   };
 
   const scrollToTop = () => {
@@ -61,6 +63,11 @@ export default function Footer() {
             <p className="text-gray-400 mb-4">
               {siteConfig?.siteSlogan || "Transformando sua beleza com cuidado, estilo e profissionalismo."}
             </p>
+            {footer.cnpj && (
+              <p className="text-gray-400 mb-4 text-sm">
+                CNPJ: {footer.cnpj}
+              </p>
+            )}
             
             {/* Social Media Links */}
             {socialLinks.length > 0 && (

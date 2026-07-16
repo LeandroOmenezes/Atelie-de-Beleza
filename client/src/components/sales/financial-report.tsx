@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Printer, TrendingUp, CreditCard, Scissors, CalendarRange, UserRound } from "lucide-react";
 
 type Period = "day" | "week" | "month" | "custom";
+type OriginFilter = "all" | "automatic" | "manual";
 
 function localDateStr(offset = 0) {
   const d = new Date();
@@ -19,6 +20,7 @@ const PAYMENT_LABELS: Record<string, string> = {
   credit: "Cartão de Crédito",
   debit: "Cartão de Débito",
   pix: "PIX",
+  appointment: "Agendamento",
 };
 
 const PAYMENT_COLORS: Record<string, string> = {
@@ -30,6 +32,7 @@ const PAYMENT_COLORS: Record<string, string> = {
 
 export default function FinancialReport() {
   const [period, setPeriod] = useState<Period>("month");
+  const [originFilter, setOriginFilter] = useState<OriginFilter>("all");
   const [customStart, setCustomStart] = useState(localDateStr(-30));
   const [customEnd, setCustomEnd] = useState(localDateStr());
   const printRef = useRef<HTMLDivElement>(null);
@@ -65,13 +68,21 @@ export default function FinancialReport() {
 
   const { start, end } = getDateRange();
 
-  const filteredSales = allSales.filter((sale) => {
+  const dateFilteredSales = allSales.filter((sale) => {
     const d = new Date(sale.date + "T00:00:00");
     return d >= start && d <= end;
   });
 
+  const filteredSales = dateFilteredSales.filter((sale) => {
+    if (originFilter === "automatic") return !!sale.appointmentId;
+    if (originFilter === "manual") return !sale.appointmentId;
+    return true;
+  });
+
   const activeSales = filteredSales.filter((s) => (s.status ?? "active") !== "cancelled");
   const cancelledSales = filteredSales.filter((s) => (s.status ?? "active") === "cancelled");
+  const automaticSales = filteredSales.filter((s) => !!s.appointmentId);
+  const manualSales = filteredSales.filter((s) => !s.appointmentId);
 
   const totalRevenue = activeSales.reduce((t, s) => t + s.amount, 0);
   const avgSale = activeSales.length ? totalRevenue / activeSales.length : 0;
@@ -115,6 +126,7 @@ export default function FinancialReport() {
   const professionalEntries = Object.entries(byProfessional).sort((a, b) => b[1].total - a[1].total);
 
   const periodLabel = period === "day" ? "Hoje" : period === "week" ? "Esta Semana" : period === "month" ? "Este Mês" : `${customStart.split("-").reverse().join("/")} a ${customEnd.split("-").reverse().join("/")}`;
+  const originLabel = originFilter === "automatic" ? "Automáticas" : originFilter === "manual" ? "Manuais" : "Todas";
 
   function handlePrint() {
     const printContent = printRef.current;
@@ -142,6 +154,8 @@ export default function FinancialReport() {
       tr:last-child td { border-bottom: none; }
       .cancelled-row td { color: #9ca3af; text-decoration: line-through; }
       .badge-cancelled { display: inline-block; background: #fee2e2; color: #dc2626; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 9999px; }
+      .badge-auto { display: inline-block; background: #d1fae5; color: #047857; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 9999px; }
+      .badge-manual { display: inline-block; background: #e2e8f0; color: #475569; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 9999px; }
       .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 12px; }
       .bar-label { width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .bar-track { flex: 1; background: #f3f4f6; border-radius: 4px; height: 10px; overflow: hidden; }
@@ -167,6 +181,8 @@ export default function FinancialReport() {
     const transactionRows = filteredSales.map(sale => {
       const cancelled = (sale.status ?? "active") === "cancelled";
       const prof = esc((sale as any).professionalName || "—");
+      const originLabel = sale.appointmentId ? "Automática" : "Manual";
+      const originClass = sale.appointmentId ? "badge-auto" : "badge-manual";
       return `<tr class="${cancelled ? "cancelled-row" : ""}">
         <td>${esc(formatDate(sale.date))}</td>
         <td>${esc(sale.clientName)}</td>
@@ -174,6 +190,7 @@ export default function FinancialReport() {
         <td>${prof}</td>
         <td>R$ ${sale.amount.toFixed(2)}</td>
         <td>${getPaymentName(sale.paymentMethod)}</td>
+        <td><span class="${originClass}">${originLabel}</span></td>
         <td>${esc(sale.notes || "—")}</td>
         <td>${cancelled ? '<span class="badge-cancelled">Cancelada</span>' : "Ativa"}</td>
       </tr>`;
@@ -226,7 +243,7 @@ export default function FinancialReport() {
 <body>
   <div class="report-header">
     <h1>Relatório Financeiro</h1>
-    <p>Período: ${periodLabel} &nbsp;|&nbsp; Gerado em: ${new Date().toLocaleDateString("pt-BR")} às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</p>
+    <p>Período: ${periodLabel} &nbsp;|&nbsp; Origem: ${originLabel} &nbsp;|&nbsp; Gerado em: ${new Date().toLocaleDateString("pt-BR")} às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</p>
   </div>
 
   <div class="summary-grid">
@@ -246,10 +263,15 @@ export default function FinancialReport() {
       <div class="sub">por venda</div>
     </div>
     <div class="summary-card">
-      <div class="label">Serviços Distintos</div>
-      <div class="value">${serviceEntries.length}</div>
-      <div class="sub">no período</div>
+      <div class="label">Vendas Automáticas</div>
+      <div class="value">${automaticSales.length}</div>
+      <div class="sub">${manualSales.length} manuais</div>
     </div>
+  </div>
+
+  <div style="margin-bottom:28px;display:flex;gap:12px;flex-wrap:wrap">
+    <div style="background:#ecfdf5;border:1px solid #bbf7d0;border-radius:10px;padding:10px 14px;font-size:12px;color:#065f46;font-weight:600">Automáticas: ${automaticSales.length}</div>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;font-size:12px;color:#475569;font-weight:600">Manuais: ${manualSales.length}</div>
   </div>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:28px">
@@ -279,10 +301,10 @@ export default function FinancialReport() {
     <table>
       <thead>
         <tr>
-          <th>Data</th><th>Cliente</th><th>Serviço</th><th>Profissional</th><th>Valor</th><th>Pagamento</th><th>Observações</th><th>Status</th>
+          <th>Data</th><th>Cliente</th><th>Serviço</th><th>Profissional</th><th>Valor</th><th>Pagamento</th><th>Origem</th><th>Observações</th><th>Status</th>
         </tr>
       </thead>
-      <tbody>${transactionRows || '<tr><td colspan="8" style="text-align:center;color:#9ca3af;padding:20px">Nenhuma venda no período.</td></tr>'}</tbody>
+      <tbody>${transactionRows || '<tr><td colspan="9" style="text-align:center;color:#9ca3af;padding:20px">Nenhuma venda no período.</td></tr>'}</tbody>
     </table>
   </div>
 
@@ -309,12 +331,38 @@ export default function FinancialReport() {
           <button className={periodButtonClass("month")} onClick={() => setPeriod("month")}>Mês</button>
           <button className={periodButtonClass("custom")} onClick={() => setPeriod("custom")}>Personalizado</button>
         </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            className={`${originFilter === "all" ? "bg-emerald-500 text-white" : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"} px-3 py-1.5 text-sm font-medium rounded-md transition-colors`}
+            onClick={() => setOriginFilter("all")}
+          >
+            Todas
+          </button>
+          <button
+            className={`${originFilter === "automatic" ? "bg-emerald-500 text-white" : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"} px-3 py-1.5 text-sm font-medium rounded-md transition-colors`}
+            onClick={() => setOriginFilter("automatic")}
+          >
+            Automáticas
+          </button>
+          <button
+            className={`${originFilter === "manual" ? "bg-emerald-500 text-white" : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"} px-3 py-1.5 text-sm font-medium rounded-md transition-colors`}
+            onClick={() => setOriginFilter("manual")}
+          >
+            Manuais
+          </button>
+        </div>
         <div className="ml-auto">
           <Button onClick={handlePrint} className="flex items-center gap-2">
             <Printer size={16} />
             Imprimir / PDF
           </Button>
         </div>
+      </div>
+
+      <div className="mb-5 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+        <span className="text-sm font-semibold text-slate-800">Relatório Financeiro</span>
+        <span className="rounded-full bg-slate-200 px-2 py-1 text-xs font-medium text-slate-700">Origem: {originLabel}</span>
+        <span className="text-xs text-slate-500">Período: {periodLabel}</span>
       </div>
 
       {period === "custom" && (
@@ -365,10 +413,10 @@ export default function FinancialReport() {
             <div className="bg-gray-50 border rounded-xl p-4">
               <div className="flex items-center gap-2 mb-2">
                 <Scissors size={16} className="text-gray-400" />
-                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Serviços</span>
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Origem</span>
               </div>
-              <p className="text-2xl font-bold text-gray-900">{serviceEntries.length}</p>
-              <p className="text-xs text-gray-400 mt-1">distintos no período</p>
+              <p className="text-2xl font-bold text-gray-900">{originFilter === "automatic" ? "Auto" : originFilter === "manual" ? "Manual" : "Todas"}</p>
+              <p className="text-xs text-gray-400 mt-1">{filteredSales.length} venda(s) no recorte</p>
             </div>
           </div>
 

@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { ProfileImageUpload } from "@/components/profile/profile-image-upload";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import type { SubscriptionPlan, UserSubscription } from "@shared/schema";
 
 interface UserAppointment {
   id: number;
@@ -80,6 +81,18 @@ export default function ProfilePage() {
   const { data: categories = [] } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
     queryFn: getQueryFn({ on401: "returnNull" }),
+  });
+
+  const { data: mySubscription = null } = useQuery<UserSubscription | null>({
+    queryKey: ["/api/my-subscription"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
+    enabled: !!user,
+  });
+
+  const { data: subscriptionPlans = [] } = useQuery<SubscriptionPlan[]>({
+    queryKey: ["/api/subscription-plans"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
+    enabled: !!user,
   });
 
   const updatePhoneMutation = useMutation({
@@ -153,6 +166,13 @@ export default function ProfilePage() {
       default: return '📋';
     }
   };
+
+  const currentPlan = mySubscription
+    ? subscriptionPlans.find((plan) => plan.id === mySubscription.planId)
+    : null;
+
+  const formatCurrency = (value: number) =>
+    value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
   return (
     <div className="font-sans bg-gray-100 text-gray-800 min-h-screen flex flex-col">
@@ -237,6 +257,56 @@ export default function ProfilePage() {
                   </div>
                 </div>
               </div>
+
+              {/* Minha Assinatura */}
+              <Card className="mb-8 border-amber-200 bg-gradient-to-r from-amber-50 to-white">
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Star className="w-5 h-5 text-amber-500" />
+                    <span>Minha Assinatura</span>
+                  </CardTitle>
+                  <CardDescription>
+                    Status atual do seu plano mensal
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {mySubscription ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="text-sm text-gray-600">Status</span>
+                        <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">
+                          {mySubscription.status === "authorized" ? "Ativa" : mySubscription.status}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="text-sm text-gray-600">Plano</span>
+                        <span className="font-medium text-gray-900">
+                          {currentPlan?.name || `Plano #${mySubscription.planId}`}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="text-sm text-gray-600">Valor mensal</span>
+                        <span className="font-medium text-gray-900">
+                          {currentPlan ? formatCurrency(Number(currentPlan.price)) : "-"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="text-sm text-gray-600">Próxima cobrança</span>
+                        <span className="font-medium text-gray-900">
+                          {mySubscription.nextBillingDate
+                            ? new Date(mySubscription.nextBillingDate).toLocaleDateString("pt-BR")
+                            : "-"}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-sm text-gray-600">Você ainda não possui assinatura ativa.</p>
+                      <Button onClick={() => (window.location.href = "/planos")}>Ver planos</Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
 
               {/* Meus Agendamentos */}
               <Card>

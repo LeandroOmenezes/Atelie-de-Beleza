@@ -1,19 +1,23 @@
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Appointment, Service, type Professional } from "@shared/schema";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Check, Clock, X, MessageCircle } from "lucide-react";
 
 export default function AppointmentsManagement() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const previousAppointmentIdsRef = useRef<number[] | null>(null);
   const { toast } = useToast();
 
   const { data: appointments, isLoading } = useQuery<Appointment[]>({
     queryKey: ['/api/appointments'],
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: services } = useQuery<Service[]>({
@@ -31,6 +35,78 @@ export default function AppointmentsManagement() {
   const { data: footerConfig } = useQuery<{ whatsapp?: string }>({
     queryKey: ['/api/footer'],
   });
+
+  const markSeenMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/appointments/mark-seen"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/appointments'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/appointments/unseen-count'] });
+      toast({
+        title: "Agendamentos atualizados",
+        description: "Os novos agendamentos foram marcados como vistos.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Erro ao marcar como visto",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const playNewAppointmentSound = () => {
+    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+
+    const audioContext = new AudioContextClass();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, audioContext.currentTime);
+    oscillator.frequency.exponentialRampToValueAtTime(660, audioContext.currentTime + 0.18);
+
+    gainNode.gain.setValueAtTime(0.0001, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.08, audioContext.currentTime + 0.02);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.22);
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.24);
+
+    oscillator.onended = () => {
+      void audioContext.close();
+    };
+  };
+
+  useEffect(() => {
+    if (!appointments) return;
+
+    const currentAppointmentIds = appointments.map((appointment) => appointment.id);
+    const previousAppointmentIds = previousAppointmentIdsRef.current;
+
+    if (previousAppointmentIds === null) {
+      previousAppointmentIdsRef.current = currentAppointmentIds;
+      return;
+    }
+
+    const newAppointmentIds = currentAppointmentIds.filter((id) => !previousAppointmentIds.includes(id));
+
+    if (newAppointmentIds.length > 0) {
+      playNewAppointmentSound();
+      toast({
+        title: newAppointmentIds.length === 1 ? "Novo agendamento" : "Novos agendamentos",
+        description:
+          newAppointmentIds.length === 1
+            ? "Um novo agendamento acabou de entrar nesta fila."
+            : `${newAppointmentIds.length} novos agendamentos acabaram de entrar nesta fila.`,
+      });
+    }
+
+    previousAppointmentIdsRef.current = currentAppointmentIds;
+  }, [appointments, toast]);
 
   const formatClientPhone = (phone: string) => {
     const digits = phone.replace(/\D/g, '');
@@ -124,6 +200,10 @@ export default function AppointmentsManagement() {
   };
 
   const filteredAppointments = getFilteredAppointments();
+  const unseenAppointments = useMemo(
+    () => filteredAppointments.filter((appointment) => !appointment.seenByAdmin),
+    [filteredAppointments]
+  );
 
   const getServiceName = (serviceId: number | string) => {
     if (!services) return "Carregando...";
@@ -140,19 +220,39 @@ export default function AppointmentsManagement() {
   return (
     <div className="bg-white p-6 rounded-lg shadow-md">
       <div className="flex justify-between items-center mb-6">
-        <h3 className="text-xl font-bold text-gray-800">Agendamentos</h3>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Filtrar por status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos</SelectItem>
-            <SelectItem value="pending">Pendentes</SelectItem>
-            <SelectItem value="confirmed">Confirmados</SelectItem>
-            <SelectItem value="completed">Concluídos</SelectItem>
-            <SelectItem value="cancelled">Cancelados</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-3">
+          <h3 className="text-xl font-bold text-gray-800">Agendamentos</h3>
+          {unseenAppointments.length > 0 && (
+            <Badge className="bg-red-100 text-red-700 border border-red-200 hover:bg-red-100">
+              {unseenAppointments.length} novo{unseenAppointments.length > 1 ? "s" : ""}
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          {unseenAppointments.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => markSeenMutation.mutate()}
+              disabled={markSeenMutation.isPending}
+            >
+              Marcar novos como vistos
+            </Button>
+          )}
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Filtrar por status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="pending">Pendentes</SelectItem>
+              <SelectItem value="confirmed">Confirmados</SelectItem>
+              <SelectItem value="completed">Concluídos</SelectItem>
+              <SelectItem value="cancelled">Cancelados</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -179,10 +279,22 @@ export default function AppointmentsManagement() {
             </thead>
             <tbody>
               {filteredAppointments.map((appointment) => (
-                <tr key={appointment.id} className="border-t">
+                <tr
+                  key={appointment.id}
+                  className={`border-t transition-colors ${
+                    !appointment.seenByAdmin ? "bg-amber-50/70" : ""
+                  }`}
+                >
                   <td className="py-3 px-4">
                     <div>
-                      <div className="font-medium">{appointment.name}</div>
+                      <div className="font-medium flex items-center gap-2">
+                        <span>{appointment.name}</span>
+                        {!appointment.seenByAdmin && (
+                          <Badge className="bg-red-500 text-white hover:bg-red-500 px-2 py-0 text-[10px]">
+                            NOVO
+                          </Badge>
+                        )}
+                      </div>
                       <div className="text-sm text-gray-500">{appointment.phone}</div>
                       <div className="text-sm text-gray-500">{appointment.email}</div>
                     </div>

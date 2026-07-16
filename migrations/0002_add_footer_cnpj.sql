@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE footer
+ADD COLUMN IF NOT EXISTS cnpj text;
+
+COMMIT;

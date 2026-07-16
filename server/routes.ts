@@ -10,6 +10,8 @@ import multer from "multer";
 import path from "path";
 import express from "express";
 import { uploadFileToSupabase, deleteFileFromSupabase } from "./supabase";
+import { sendSubscriptionApprovedEmail, sendSubscriptionCancelledEmail } from "./subscription-emails";
+import { sendSaleReceiptEmail } from "./sales-receipt-emails";
 import { db } from "./db";
 import { users, services, banner, siteConfig, professionals } from "@shared/schema";
 import { eq } from "drizzle-orm";
@@ -35,6 +37,70 @@ function buildBusinessDateTime(date: string, time: string) {
     return dateTime;
   }
   return new Date(Date.UTC(year, month - 1, day, hour + 3, minute));
+}
+
+function sanitizeUserForResponse<T extends Record<string, any>>(user: T) {
+  const { password, ...safeUser } = user;
+  return safeUser;
+}
+
+async function syncSaleForAppointment(appointmentId: number) {
+  const appointment = await storage.getAppointmentById(appointmentId);
+  if (!appointment) {
+    return undefined;
+  }
+
+  const shouldCreateSale = appointment.paymentStatus === "not_required" || appointment.paymentStatus === "paid";
+  if (!shouldCreateSale) {
+    return undefined;
+  }
+
+  const existingSales = await storage.getSales();
+  const existingSale = existingSales.find((item) => item.appointmentId === appointment.id);
+  if (existingSale) {
+    return existingSale;
+  }
+
+  const service = await storage.getServiceById(appointment.serviceId);
+  const saleAmount = appointment.paymentAmount ?? service?.minPrice ?? 0;
+
+  const createdSale = await storage.createSale({
+    appointmentId: appointment.id,
+    clientName: appointment.name,
+    serviceId: String(appointment.serviceId),
+    amount: saleAmount,
+    date: appointment.date,
+    paymentMethod: appointment.paymentStatus === "paid" ? "credit" : "appointment",
+    notes: appointment.notes ?? undefined,
+    professionalId: appointment.professionalId ? String(appointment.professionalId) : undefined,
+  });
+
+  if (appointment.email) {
+    void sendSaleReceiptEmail({
+      to: appointment.email,
+      saleId: createdSale.id,
+      customerName: appointment.name,
+      serviceName: createdSale.serviceName,
+      saleDate: createdSale.date,
+      amount: createdSale.amount,
+      paymentMethod: createdSale.paymentMethod,
+      notes: createdSale.notes,
+    }).catch((error) => {
+      console.warn("Falha ao enviar comprovante de servico do agendamento:", error);
+    });
+  }
+
+  return createdSale;
+}
+
+async function cancelSaleForAppointment(appointmentId: number, reason?: string) {
+  const sales = await storage.getSales();
+  const sale = sales.find((item) => item.appointmentId === appointmentId && item.status !== "cancelled");
+  if (!sale) {
+    return undefined;
+  }
+
+  return storage.cancelSale(sale.id, reason);
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -107,7 +173,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const clients = await storage.getClients();
-      res.json(clients);
+      res.json(clients.map((client) => sanitizeUserForResponse(client as any)));
     } catch (error) {
       res.status(500).json({ message: "Erro ao buscar clientes" });
     }
@@ -191,7 +257,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Cliente não encontrado" });
       }
       
-      res.json(client);
+      res.json(sanitizeUserForResponse(client as any));
     } catch (error) {
       res.status(500).json({ message: "Erro ao buscar cliente" });
     }
@@ -211,7 +277,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const client = await storage.createClient({ name, phone, email });
-      res.status(201).json(client);
+      res.status(201).json(sanitizeUserForResponse(client as any));
     } catch (error: any) {
       console.error("[CREATE CLIENT ERROR]", error?.message || error);
       const msg = error?.message || "";
@@ -242,7 +308,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Cliente não encontrado" });
       }
       
-      res.json(client);
+      res.json(sanitizeUserForResponse(client as any));
     } catch (error) {
       res.status(500).json({ message: "Erro ao atualizar cliente" });
     }
@@ -800,6 +866,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const appointment = await storage.createAppointment(appointmentData);
+
+      if (!appointment.requiresPayment || appointment.paymentStatus === "not_required") {
+        await syncSaleForAppointment(appointment.id);
+      }
       
       // Notify SSE clients to refresh available times for the appointment date
       try {
@@ -874,6 +944,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/appointments/unseen-count", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated() || !req.user?.isAdmin) {
+        return res.status(401).json({ message: "Não autenticado" });
+      }
+
+      const count = await storage.getUnseenCountForAdmin();
+      res.json({ count });
+    } catch (error) {
+      res.status(500).json({ message: "Erro ao buscar total de novos agendamentos" });
+    }
+  });
+
+  app.post("/api/appointments/mark-seen", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated() || !req.user?.isAdmin) {
+        return res.status(401).json({ message: "Não autenticado" });
+      }
+
+      await storage.markAppointmentsSeenByAdmin();
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ message: "Erro ao marcar agendamentos como vistos" });
+    }
+  });
+
 
   app.get("/api/my-appointments", async (req: Request, res: Response) => {
     try {
@@ -924,6 +1020,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (!appointment) {
         return res.status(404).json({ message: "Agendamento não encontrado" });
+      }
+
+      if (status === "confirmed" || status === "completed") {
+        await syncSaleForAppointment(appointment.id);
+      }
+
+      if (status === "cancelled") {
+        await cancelSaleForAppointment(appointment.id);
       }
 
 
@@ -1233,6 +1337,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const saleData = insertSaleSchema.parse(req.body);
       const sale = await storage.createSale(saleData);
+
+      const providedEmail =
+        typeof req.body.clientEmail === "string" && req.body.clientEmail.trim().includes("@")
+          ? req.body.clientEmail.trim()
+          : "";
+
+      let recipientEmail = providedEmail;
+      if (!recipientEmail) {
+        const clients = await storage.getClients();
+        const normalizedName = (sale.clientName || "").trim().toLowerCase();
+        const matchedClient = clients.find((client) => (client.name || "").trim().toLowerCase() === normalizedName);
+        recipientEmail = matchedClient?.email || (matchedClient?.username?.includes("@") ? matchedClient.username : "");
+      }
+
+      if (recipientEmail) {
+        void sendSaleReceiptEmail({
+          to: recipientEmail,
+          saleId: sale.id,
+          customerName: sale.clientName,
+          serviceName: sale.serviceName,
+          saleDate: sale.date,
+          amount: sale.amount,
+          paymentMethod: sale.paymentMethod,
+          notes: sale.notes,
+        }).catch((error) => {
+          console.warn("Falha ao enviar comprovante de servico da venda manual:", error);
+        });
+      }
+
       res.status(201).json(sale);
     } catch (error) {
       if (error instanceof ZodError) {
@@ -2204,6 +2337,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Confirm appointment
         await storage.updateAppointmentStatus(appointmentId, "confirmed");
+        await syncSaleForAppointment(appointmentId);
 
         res.json({ success: true, message: "Pagamento confirmado! Seu agendamento foi confirmado.", payment: paymentResult });
       } else {
@@ -2340,6 +2474,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // === User Subscription Routes ===
 
+  // Admin: list clients with subscription status for easier management
+  app.get("/api/admin/subscriptions/customers", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated() || !(req.user as any).isAdmin) {
+        return res.status(403).json({ message: "Acesso negado" });
+      }
+
+      const [clients, plans] = await Promise.all([
+        storage.getClients(),
+        storage.getSubscriptionPlans(),
+      ]);
+
+      const planNameById = new Map<number, string>(plans.map((plan) => [plan.id, plan.name]));
+
+      const clientsWithSubscription = await Promise.all(
+        clients.map(async (client) => {
+          const activeSubscription = await storage.getActiveSubscriptionForUser(client.id);
+
+          return {
+            ...sanitizeUserForResponse(client as any),
+            subscription: activeSubscription
+              ? {
+                  id: activeSubscription.id,
+                  status: activeSubscription.status,
+                  planId: activeSubscription.planId,
+                  planName: planNameById.get(activeSubscription.planId) || `Plano #${activeSubscription.planId}`,
+                  nextBillingDate: activeSubscription.nextBillingDate,
+                }
+              : null,
+          };
+        })
+      );
+
+      res.json(clientsWithSubscription);
+    } catch (error) {
+      console.error("Erro ao listar clientes com assinatura:", error);
+      res.status(500).json({ message: "Erro ao listar clientes com assinatura" });
+    }
+  });
+
   // Get user's active subscription
   app.get("/api/my-subscription", async (req: Request, res: Response) => {
     try {
@@ -2431,7 +2605,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         paymentToken,
         plan.price,
         plan.name,
-        user?.email || "",
+        user?.email || user?.username || "",
         new Date()
       );
 
@@ -2447,6 +2621,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: "authorized",
         nextBillingDate,
       });
+
+      if (user?.email || user?.username) {
+        void sendSubscriptionApprovedEmail({
+          to: user.email || user.username || "",
+          customerName: user.name,
+          planName: plan.name,
+          planPrice: Number(plan.price),
+          nextBillingDate,
+        }).catch((error) => {
+          console.warn("Falha ao enviar email de assinatura aprovada:", error);
+        });
+      }
 
       res.status(201).json({ success: true, subscription });
     } catch (error) {
@@ -2486,6 +2672,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Cancel in database
       const cancelled = await storage.cancelUserSubscription(Number(id));
 
+      if (cancelled) {
+        const [subscriptionOwner, subscriptionPlan] = await Promise.all([
+          storage.getUser(subscription.userId),
+          storage.getSubscriptionPlanById(subscription.planId),
+        ]);
+
+        if (subscriptionOwner?.email || subscriptionOwner?.username) {
+          void sendSubscriptionCancelledEmail({
+            to: subscriptionOwner.email || subscriptionOwner.username || "",
+            customerName: subscriptionOwner.name,
+            planName: subscriptionPlan?.name || `Plano #${subscription.planId}`,
+          }).catch((error) => {
+            console.warn("Falha ao enviar email de cancelamento de assinatura:", error);
+          });
+        }
+      }
+
       res.json({ message: "Assinatura cancelada com sucesso", subscription: cancelled });
     } catch (error) {
       console.error("Erro ao cancelar assinatura:", error);
@@ -2513,6 +2716,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               paymentStatus: "paid",
             });
             await storage.updateAppointmentStatus(appointment.id, "confirmed");
+            await syncSaleForAppointment(appointment.id);
           } else if (paymentData.status === "rejected" || paymentData.status === "cancelled") {
             await storage.updateAppointmentPayment(appointment.id, {
               paymentStatus: "failed",
@@ -2530,10 +2734,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (action === "subscription_preapproval.updated") {
             const preapprovalData = await mercadoPago.getPreapproval(preapprovalId);
             if (preapprovalData.status === "authorized") {
-              await storage.updateUserSubscription(subscription.id, {
+              const updatedSubscription = await storage.updateUserSubscription(subscription.id, {
                 status: "authorized",
                 nextBillingDate: new Date(preapprovalData.nextBillingDate || Date.now()),
               });
+
+              if (subscription.status !== "authorized") {
+                const [subscriptionOwner, subscriptionPlan] = await Promise.all([
+                  storage.getUser(subscription.userId),
+                  storage.getSubscriptionPlanById(subscription.planId),
+                ]);
+
+                if ((subscriptionOwner?.email || subscriptionOwner?.username) && updatedSubscription) {
+                  void sendSubscriptionApprovedEmail({
+                    to: subscriptionOwner.email || subscriptionOwner.username || "",
+                    customerName: subscriptionOwner.name,
+                    planName: subscriptionPlan?.name || `Plano #${subscription.planId}`,
+                    planPrice: Number(subscriptionPlan?.price || 0),
+                    nextBillingDate: updatedSubscription.nextBillingDate,
+                  }).catch((error) => {
+                    console.warn("Falha ao enviar email de assinatura aprovada (webhook):", error);
+                  });
+                }
+              }
+            } else if (preapprovalData.status === "cancelled" && subscription.status !== "cancelled") {
+              await storage.updateUserSubscription(subscription.id, {
+                status: "cancelled",
+              });
+
+              const [subscriptionOwner, subscriptionPlan] = await Promise.all([
+                storage.getUser(subscription.userId),
+                storage.getSubscriptionPlanById(subscription.planId),
+              ]);
+
+              if (subscriptionOwner?.email || subscriptionOwner?.username) {
+                void sendSubscriptionCancelledEmail({
+                  to: subscriptionOwner.email || subscriptionOwner.username || "",
+                  customerName: subscriptionOwner.name,
+                  planName: subscriptionPlan?.name || `Plano #${subscription.planId}`,
+                }).catch((error) => {
+                  console.warn("Falha ao enviar email de cancelamento de assinatura (webhook):", error);
+                });
+              }
             }
           }
         }

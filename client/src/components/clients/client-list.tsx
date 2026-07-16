@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { User } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Search, UserPlus, Phone, Mail, Trash, Edit, UserCheck, Calendar } from "lucide-react";
 import { maskPhone } from "@/lib/utils";
@@ -28,6 +29,18 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMutation } from "@tanstack/react-query";
 
+type ClientSubscriptionInfo = {
+  id: number;
+  status: string;
+  planId: number;
+  planName: string;
+  nextBillingDate: string;
+};
+
+type ClientWithSubscription = User & {
+  subscription?: ClientSubscriptionInfo | null;
+};
+
 export default function ClientList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
@@ -38,12 +51,24 @@ export default function ClientList() {
   const { toast } = useToast();
 
   // Fetch clients data
-  const { data: clients = [], isLoading } = useQuery<User[]>({
+  const { data: clients = [], isLoading } = useQuery<ClientWithSubscription[]>({
     queryKey: ["/api/clients"],
     queryFn: async () => {
-      const res = await fetch("/api/clients");
+      const adminRes = await fetch("/api/admin/subscriptions/customers", {
+        credentials: "include",
+      });
+
+      if (adminRes.ok) {
+        return adminRes.json();
+      }
+
+      // fallback para ambientes/perfis sem permissão admin
+      const res = await fetch("/api/clients", { credentials: "include" });
       if (!res.ok) throw new Error("Falha ao carregar os clientes");
-      return res.json();
+      const basicClients = await res.json();
+      return Array.isArray(basicClients)
+        ? basicClients.map((client) => ({ ...client, subscription: null }))
+        : [];
     },
   });
 
@@ -146,7 +171,7 @@ export default function ClientList() {
     editClientMutation.mutate({ id, client: clientData });
   };
 
-  const openEditDialog = (client: User) => {
+  const openEditDialog = (client: ClientWithSubscription) => {
     setEditingClient({
       id: client.id,
       name: client.name || "",
@@ -216,6 +241,25 @@ export default function ClientList() {
                   </div>
                   <div>
                     <h3 className="font-medium text-gray-900">{client.name}</h3>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      {client.subscription ? (
+                        <>
+                          <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">
+                            Assinante ativo
+                          </Badge>
+                          <span className="text-xs text-emerald-700">{client.subscription.planName}</span>
+                          {client.subscription.nextBillingDate ? (
+                            <span className="text-xs text-gray-500">
+                              Proxima cobranca: {new Date(client.subscription.nextBillingDate).toLocaleDateString("pt-BR")}
+                            </span>
+                          ) : null}
+                        </>
+                      ) : (
+                        <Badge variant="secondary" className="bg-gray-100 text-gray-700 hover:bg-gray-100">
+                          Sem assinatura
+                        </Badge>
+                      )}
+                    </div>
                     
                     <div className="flex flex-wrap gap-3 mt-1 text-sm text-gray-500">
                       {client.phone && (

@@ -6,6 +6,7 @@ import { SubscriptionCheckoutForm } from "@/components/payments/subscription-che
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
+import { BadgeCheck, CalendarClock, ShieldCheck, Sparkles } from "lucide-react";
 import type { SubscriptionPlan, UserSubscription } from "@shared/schema";
 
 function parseIncludedServiceIds(value: string | number[] | null | undefined): number[] {
@@ -141,11 +142,7 @@ export function SubscriptionPlansPage() {
   const handleCheckoutSuccess = () => {
     setShowCheckout(false);
     setSelectedPlan(null);
-    // Recarrega assinatura do usuário
-    fetch("/api/my-subscription", { credentials: "include" }).then((res) => {
-      if (res.ok) return res.json();
-      return null;
-    }).then((sub) => setUserSubscription(sub));
+    navigate("/profile");
   };
 
   if (pageIsLoading || isLoading) {
@@ -155,6 +152,12 @@ export function SubscriptionPlansPage() {
       </div>
     );
   }
+
+  const recommendedPlanId = plans.reduce((bestId, plan) => {
+    const bestPlan = plans.find((p) => p.id === bestId);
+    if (!bestPlan) return plan.id;
+    return plan.price > bestPlan.price ? plan.id : bestId;
+  }, plans[0]?.id);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white p-4 md:p-8">
@@ -189,18 +192,39 @@ export function SubscriptionPlansPage() {
 
         {/* Plans Grid */}
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
-          {plans.map((plan) => (
-            <Card key={plan.id} className="flex flex-col h-full hover:shadow-lg transition-shadow">
-              <div className="p-6 flex-1 flex flex-col">
-                <h3 className="text-2xl font-bold mb-2">{plan.name}</h3>
-                <p className="text-gray-600 text-sm mb-4 flex-1">{plan.description}</p>
+          {plans.map((plan) => {
+            const isCurrentPlan = !!(userSubscription && userSubscription.planId === plan.id);
+            const isRecommended = recommendedPlanId === plan.id;
+
+            return (
+            <Card
+              key={plan.id}
+              className={`flex h-full flex-col border transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl ${
+                isRecommended
+                  ? "border-amber-300 bg-gradient-to-b from-amber-50 to-white"
+                  : "border-slate-200 bg-white"
+              }`}
+            >
+              <div className="flex flex-1 flex-col p-6">
+                <div className="mb-4 flex min-h-[24px] items-center gap-2">
+                  {isRecommended ? (
+                    <Badge className="border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-100">Mais escolhido</Badge>
+                  ) : null}
+                  {isCurrentPlan ? (
+                    <Badge className="border-emerald-300 bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Sua assinatura atual</Badge>
+                  ) : null}
+                </div>
+
+                <h3 className="mb-2 text-2xl font-bold text-slate-900">{plan.name}</h3>
+                <p className="mb-4 flex-1 text-sm text-slate-600">{plan.description}</p>
 
                 {/* Price */}
-                <div className="mb-6">
-                  <p className="text-4xl font-bold text-primary">
-                    R$ {plan.price.toFixed(2)}
+                <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-4xl font-bold text-slate-900">
+                    R$ {plan.price.toFixed(2).replace('.', ',')}
                   </p>
-                  <p className="text-gray-600 text-sm">/mês</p>
+                  <p className="text-sm text-slate-600">por mês</p>
+                  <p className="mt-1 text-xs text-slate-500">Cobrança recorrente mensal</p>
                 </div>
 
                 {/* Services included */}
@@ -208,12 +232,12 @@ export function SubscriptionPlansPage() {
                   const includedIds = parseIncludedServiceIds(plan.includedServiceIds as string | null | undefined);
                   return includedIds.length > 0 ? (
                     <div className="mb-6">
-                      <p className="text-sm font-semibold text-gray-700 mb-2">Serviços Inclusos:</p>
+                      <p className="mb-2 text-sm font-semibold text-slate-700">Serviços inclusos:</p>
                       <div className="flex flex-wrap gap-2">
                         {includedIds.map((serviceId) => {
                           const svc = priceItems.find((s) => s.id === serviceId);
                           return (
-                            <Badge key={serviceId} variant="secondary">
+                            <Badge key={serviceId} variant="secondary" className="bg-slate-100 text-slate-700">
                               {svc?.name ?? `Serviço #${serviceId}`}
                             </Badge>
                           );
@@ -223,52 +247,69 @@ export function SubscriptionPlansPage() {
                   ) : null;
                 })()}
 
+                <div className="mb-5 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600">
+                  Cancelamento quando desejar, sem multa ou taxa adicional.
+                </div>
+
                 {/* Subscribe Button */}
                 <Button
                   onClick={() => handleSubscribe(plan)}
-                  disabled={!!(userSubscription && userSubscription.planId === plan.id)}
-                  className="w-full"
+                  disabled={isCurrentPlan}
+                  className={`w-full ${isRecommended ? "bg-amber-500 text-black hover:bg-amber-400" : ""}`}
                 >
-                  {userSubscription && userSubscription.planId === plan.id
-                    ? "Assinatura Ativa"
+                  {isCurrentPlan
+                    ? "Assinatura ativa"
                     : "Assinar Agora"}
                 </Button>
               </div>
             </Card>
-          ))}
+          )})}
         </div>
 
         {/* Benefits Section */}
-        <Card className="p-8 bg-gradient-to-r from-blue-50 to-blue-100">
-          <h2 className="text-2xl font-bold mb-6">Benefícios da Assinatura</h2>
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="flex gap-4">
-              <div className="text-2xl">✓</div>
-              <div>
-                <h3 className="font-semibold text-gray-900">Acesso Prioritário</h3>
-                <p className="text-gray-700">Agende seus serviços inclusos sem preocupação com disponibilidade</p>
+        <Card className="mb-6 overflow-hidden border-slate-200 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-0 text-white shadow-xl">
+          <div className="p-8 md:p-10">
+            <div className="mb-8 flex items-center gap-3">
+              <Sparkles className="h-6 w-6 text-amber-300" />
+              <h2 className="text-2xl font-bold md:text-3xl">Benefícios da Assinatura</h2>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-white/15 bg-white/5 p-5 backdrop-blur">
+                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-emerald-300/20">
+                  <BadgeCheck className="h-5 w-5 text-emerald-300" />
+                </div>
+                <h3 className="mb-1 font-semibold">Acesso Prioritário</h3>
+                <p className="text-sm text-slate-200">Agende seus serviços inclusos com prioridade de atendimento.</p>
+              </div>
+
+              <div className="rounded-xl border border-white/15 bg-white/5 p-5 backdrop-blur">
+                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-cyan-300/20">
+                  <CalendarClock className="h-5 w-5 text-cyan-300" />
+                </div>
+                <h3 className="mb-1 font-semibold">Renovação Mensal Automática</h3>
+                <p className="text-sm text-slate-200">Sua assinatura é renovada mensalmente para manter seus benefícios ativos.</p>
+              </div>
+
+              <div className="rounded-xl border border-white/15 bg-white/5 p-5 backdrop-blur">
+                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-amber-300/20">
+                  <ShieldCheck className="h-5 w-5 text-amber-300" />
+                </div>
+                <h3 className="mb-1 font-semibold">Cancelamento Simples no App</h3>
+                <p className="text-sm text-slate-200">Você pode cancelar quando quiser, sem multa ou taxa adicional.</p>
+              </div>
+
+              <div className="rounded-xl border border-white/15 bg-white/5 p-5 backdrop-blur">
+                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-fuchsia-300/20">
+                  <BadgeCheck className="h-5 w-5 text-fuchsia-300" />
+                </div>
+                <h3 className="mb-1 font-semibold">Suporte Dedicado</h3>
+                <p className="text-sm text-slate-200">Atendimento prioritário para dúvidas e suporte da assinatura.</p>
               </div>
             </div>
-            <div className="flex gap-4">
-              <div className="text-2xl">✓</div>
-              <div>
-                <h3 className="font-semibold text-gray-900">Renovação Automática</h3>
-                <p className="text-gray-700">Sua assinatura renova automaticamente todo mês</p>
-              </div>
-            </div>
-            <div className="flex gap-4">
-              <div className="text-2xl">✓</div>
-              <div>
-                <h3 className="font-semibold text-gray-900">Cancelamento Flexível</h3>
-                <p className="text-gray-700">Cancele quando quiser, sem multa ou taxa adicional</p>
-              </div>
-            </div>
-            <div className="flex gap-4">
-              <div className="text-2xl">✓</div>
-              <div>
-                <h3 className="font-semibold text-gray-900">Suporte Dedicado</h3>
-                <p className="text-gray-700">Acesso prioritário ao nosso time de atendimento</p>
-              </div>
+
+            <div className="mt-6 rounded-lg border border-emerald-300/30 bg-emerald-300/10 p-4 text-sm text-emerald-100">
+              Transparencia para voce: valor e periodicidade sao exibidos antes da confirmacao. O cancelamento pode ser solicitado diretamente no seu painel.
             </div>
           </div>
         </Card>

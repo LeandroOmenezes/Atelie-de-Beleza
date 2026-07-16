@@ -1,14 +1,63 @@
 let mpInstance: any = null;
 let mpInitPromise: Promise<any> | null = null;
 let activeCardForm: any = null;
+let globalErrorGuardsInstalled = false;
+let publicKeyPromise: Promise<string> | null = null;
 const sdkScriptUrl = "https://sdk.mercadopago.com/js/v2";
 // Fallback para v1 se v2 falhar
 const sdkScriptUrlV1 = "https://secure.mlstatic.com/org-img/SDK/Payment/lib/mercadopago.js";
 // evita múltiplas montagens concorrentes por container
 const mountingPromises: Record<string, Promise<any> | null> = {};
 
+function toErrorText(value: any): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value.message === "string") return value.message;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function shouldSuppressMercadoPagoRuntimeError(value: any): boolean {
+  const text = toErrorText(value);
+
+  return /Context .* already exists|backgroundColor|getLiteralColors|Mercado Pago/i.test(text);
+}
+
+function installMercadoPagoErrorGuards(): void {
+  if (globalErrorGuardsInstalled || typeof window === "undefined") {
+    return;
+  }
+
+  const handleWindowError = (event: ErrorEvent) => {
+    if (!shouldSuppressMercadoPagoRuntimeError(event.error || event.message)) {
+      return;
+    }
+
+    console.warn("Mercado Pago: erro global conhecido suprimido", event.error || event.message);
+    event.preventDefault();
+    event.stopImmediatePropagation?.();
+  };
+
+  const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+    if (!shouldSuppressMercadoPagoRuntimeError(event.reason)) {
+      return;
+    }
+
+    console.warn("Mercado Pago: rejection conhecida suprimida", event.reason);
+    event.preventDefault();
+    event.stopImmediatePropagation?.();
+  };
+
+  window.addEventListener("error", handleWindowError);
+  window.addEventListener("unhandledrejection", handleUnhandledRejection);
+  globalErrorGuardsInstalled = true;
+}
+
 // Debug helpers expostos globalmente para diagnóstico em runtime
 try {
+  installMercadoPagoErrorGuards();
   const g: any = window as any;
   if (!g.__mpDebugLogs) g.__mpDebugLogs = [];
   if (!g.__lastMercadoPagoError) g.__lastMercadoPagoError = null;
@@ -176,12 +225,44 @@ function isDuplicateContextError(error: any): boolean {
   return /Context .* already exists|already exists/i.test(message);
 }
 
+async function getMercadoPagoPublicKey(): Promise<string> {
+  if (publicKeyPromise) {
+    return publicKeyPromise;
+  }
+
+  publicKeyPromise = (async () => {
+    const response = await fetch("/api/config/mercadopago-public-key", {
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      throw new Error("Não foi possível obter a chave pública do Mercado Pago");
+    }
+
+    const data = await response.json();
+    const key = typeof data?.publicKey === "string" ? data.publicKey.trim() : "";
+
+    if (!key) {
+      throw new Error("Chave pública do Mercado Pago inválida ou ausente");
+    }
+
+    return key;
+  })();
+
+  try {
+    return await publicKeyPromise;
+  } catch (error) {
+    publicKeyPromise = null;
+    throw error;
+  }
+}
+
 export async function resetMercadoPagoSdk() {
   console.warn("Mercado Pago: resetando SDK");
   mpInstance = null;
   mpInitPromise = null;
   activeCardForm = null;
-  clearMercadoPagoContexts();
+  // clearMercadoPagoContexts() removido - causa problemas na segunda tentativa
   removeMercadoPagoScripts();
   // limpar promises de montagem para evitar races com instâncias anteriores
   try {
@@ -202,13 +283,19 @@ export async function resetMercadoPagoSdk() {
   }
 
   try {
-    Object.keys(window).forEach((key) => {
-      if (/MercadoPago|mercadopago|MP|mp/i.test(key)) {
-        try {
-          delete (window as any)[key];
-        } catch {
-          // ignore
-        }
+    // Limpa somente chaves conhecidas do SDK; regex genérica pode remover APIs nativas do browser.
+    const knownSdkKeys = [
+      "MercadoPago",
+      "MercadoPagoDebug",
+      "__mpDebugLogs",
+      "__lastMercadoPagoError",
+    ];
+
+    knownSdkKeys.forEach((key) => {
+      try {
+        delete (window as any)[key];
+      } catch {
+        // ignore
       }
     });
   } catch {
@@ -329,62 +416,82 @@ class FallbackCardForm {
     const form = document.getElementById(this.formId);
     if (!form) return;
 
-    // Renderizar campos HTML simples
+    // Renderizar campos HTML simples diretamente no mesmo container
     form.innerHTML = `
-      <div class="fallback-card-form">
-        <input type="text" id="${this.formId}-cardNumber" placeholder="Número do cartão" maxlength="19" data-field="cardNumber" />
+      <div class="fallback-card-form" data-fallback-form="true">
+        <input type="text" id="${this.formId}-cardNumber" placeholder="Número do cartão" maxlength="23" data-field="cardNumber" autocomplete="cc-number" />
         <div class="row">
-          <input type="text" id="${this.formId}-cardExpirationDate" placeholder="MM/YY" maxlength="5" data-field="cardExpirationDate" />
-          <input type="text" id="${this.formId}-securityCode" placeholder="CVV" maxlength="4" data-field="securityCode" />
+          <input type="text" id="${this.formId}-cardExpirationDate" placeholder="MM/YY" maxlength="5" data-field="cardExpirationDate" autocomplete="cc-exp" />
+          <input type="text" id="${this.formId}-securityCode" placeholder="CVV" maxlength="4" data-field="securityCode" autocomplete="cc-csc" />
         </div>
-        <input type="text" id="${this.formId}-cardholderName" placeholder="Nome do titular" data-field="cardholderName" />
+        <input type="text" id="${this.formId}-cardholderName" placeholder="Nome do titular" data-field="cardholderName" autocomplete="cc-name" />
       </div>
       <style>
-        .fallback-card-form input { width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 14px; }
-        .fallback-card-form .row { display: flex; gap: 8px; }
+        .fallback-card-form input { width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid #d1d5db; border-radius: 8px; box-sizing: border-box; font-size: 14px; }
+        .fallback-card-form .row { display: flex; gap: 10px; }
         .fallback-card-form .row input { flex: 1; }
+        .fallback-card-form { display: grid; gap: 10px; }
       </style>
     `;
   }
 
+  private readField(field: string) {
+    return (document.getElementById(`${this.formId}-${field}`) as HTMLInputElement)?.value?.trim() || "";
+  }
+
   async createCardToken() {
-    // Ler dados do formulário
-    const cardNumber = (document.getElementById(`${this.formId}-cardNumber`) as HTMLInputElement)?.value || "";
-    const cardExpirationDate = (document.getElementById(`${this.formId}-cardExpirationDate`) as HTMLInputElement)?.value || "";
-    const securityCode = (document.getElementById(`${this.formId}-securityCode`) as HTMLInputElement)?.value || "";
-    const cardholderName = (document.getElementById(`${this.formId}-cardholderName`) as HTMLInputElement)?.value || "";
+    const cardNumber = this.readField("cardNumber");
+    const cardExpirationDate = this.readField("cardExpirationDate");
+    const securityCode = this.readField("securityCode");
+    const cardholderName = this.readField("cardholderName");
 
     if (!cardNumber || !cardExpirationDate || !securityCode || !cardholderName) {
       throw new Error("Por favor, preencha todos os campos do cartão");
     }
 
-    console.log("FallbackCardForm: tokenizando cartão via servidor");
+    const normalizedCardNumber = cardNumber.replace(/\s+/g, "");
+    const [rawMonth, rawYear] = cardExpirationDate.split("/");
+    const expirationMonth = (rawMonth || "").trim().padStart(2, "0");
+    const year = (rawYear || "").trim();
+    const expirationYear = year.length === 2 ? `20${year}` : year;
 
-    // Chamar endpoint do servidor para tokenizar
+    if (!/^\d{2}$/.test(expirationMonth) || !/^\d{4}$/.test(expirationYear)) {
+      throw new Error("Data de validade inválida. Use o formato MM/YY.");
+    }
+
+    console.log("FallbackCardForm: tokenizando cartão via API pública do Mercado Pago");
+
     try {
-      const response = await fetch("/api/payments/tokenize-card", {
+      const publicKey = await getMercadoPagoPublicKey();
+      const response = await fetch(`https://api.mercadopago.com/v1/card_tokens?public_key=${encodeURIComponent(publicKey)}`, {
         method: "POST",
-        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          cardNumber,
-          cardExpirationDate,
-          securityCode,
-          cardholderName,
+          card_number: normalizedCardNumber,
+          expiration_month: expirationMonth,
+          expiration_year: expirationYear,
+          security_code: securityCode,
+          cardholder: {
+            name: cardholderName,
+            identification: {
+              type: "CPF",
+              number: "12345678909",
+            },
+          },
         }),
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({ message: "Erro ao tokenizar cartão" }));
         throw new Error(error.message || "Erro ao tokenizar cartão");
       }
 
       const data = await response.json();
       console.log("FallbackCardForm: token recebido do servidor");
       return {
-        token: data.token,
+        token: data.id,
       };
     } catch (error: any) {
       console.error("FallbackCardForm: erro ao tokenizar", error);
@@ -410,6 +517,17 @@ export async function createCardForm(containerId: string, options: any = {}) {
   }
 
   const promise = (async () => {
+    const shouldUseFallbackOnly = options?.preferSdk !== true;
+
+    if (shouldUseFallbackOnly) {
+      await waitForFormContainer(containerId);
+      const fallback = new FallbackCardForm(containerId);
+      await fallback.mount();
+      activeCardForm = fallback;
+      delete mountingPromises[containerId];
+      return fallback;
+    }
+
     let mp = await getMercadoPago();
     let cardFormInstance: any = null;
 
@@ -420,21 +538,32 @@ export async function createCardForm(containerId: string, options: any = {}) {
     if (activeCardForm) {
       try {
         await destroyCardForm(activeCardForm);
+        // Espera após destruição para garantir limpeza
+        await new Promise((r) => setTimeout(r, 300));
       } catch (destroyError) {
         console.warn("Mercado Pago: falha ao destruir card form ativo", destroyError);
       }
       activeCardForm = null;
     }
 
-      // Limpa eventuais contexts remanescentes do SDK antes de criar um novo form.
-      clearMercadoPagoContexts();
-
-      await waitForFormContainer(containerId);
+    await waitForFormContainer(containerId);
 
     return new Promise<any>((resolve, reject) => {
+      let hasFallbacked = false;
+
       const mountFallback = async (reason: string, err?: any) => {
+        if (hasFallbacked) return;
+        hasFallbacked = true;
         cleanup();
         console.warn("Mercado Pago: mount fallback card form", reason, err);
+
+        if (cardFormInstance && typeof cardFormInstance.destroy === "function") {
+          try {
+            await cardFormInstance.destroy();
+          } catch (destroyError) {
+            console.warn("Mercado Pago: falha ao destruir cardForm após fallback", destroyError);
+          }
+        }
 
         const fallback = new FallbackCardForm(containerId);
         try {
@@ -458,6 +587,7 @@ export async function createCardForm(containerId: string, options: any = {}) {
       };
       
       const resolveMount = (value: any) => {
+        if (hasFallbacked) return;
         cleanup();
         activeCardForm = value;
         delete mountingPromises[containerId];
@@ -465,6 +595,7 @@ export async function createCardForm(containerId: string, options: any = {}) {
       };
       
       const rejectMount = (error: any) => {
+        if (hasFallbacked) return;
         cleanup();
         delete mountingPromises[containerId];
         reject(error);
@@ -490,35 +621,26 @@ export async function createCardForm(containerId: string, options: any = {}) {
       };
 
       const createCardFormInstance = async () => {
-        let retry = false;
-
-        while (true) {
-          try {
-            await new Promise((r) => requestAnimationFrame(r));
-            return mp.cardForm({
-              amount: String(options.amount || "0"),
-              autoMount: true,
-              form: {
-                id: containerId,
-                cardNumber: { id: `${containerId}-cardNumber` },
-                cardExpirationDate: { id: `${containerId}-cardExpirationDate` },
-                securityCode: { id: `${containerId}-securityCode` },
-                cardholderName: { id: `${containerId}-cardholderName` },
-              },
-              callbacks,
-            });
-          } catch (err: any) {
-            console.error("Mercado Pago: cardForm creation exception", err);
-            if (!retry && isDuplicateContextError(err)) {
-              retry = true;
-              console.warn("Mercado Pago: conflito de contextos detectado, resetando SDK e tentando novamente");
-              await resetMercadoPagoSdk();
-              await loadMercadoPagoSdk();
-              mp = await getMercadoPago();
-              continue;
-            }
-            throw err;
+        try {
+          await new Promise((r) => requestAnimationFrame(r));
+          return mp.cardForm({
+            amount: String(options.amount || "0"),
+            autoMount: true,
+            form: {
+              id: containerId,
+              cardNumber: { id: `${containerId}-cardNumber` },
+              cardExpirationDate: { id: `${containerId}-cardExpirationDate` },
+              securityCode: { id: `${containerId}-securityCode` },
+              cardholderName: { id: `${containerId}-cardholderName` },
+            },
+            callbacks,
+          });
+        } catch (err: any) {
+          if (isDuplicateContextError(err)) {
+            console.warn("Mercado Pago: conflito de contextos detectado, usando fallback sem resetar SDK");
           }
+          console.error("Mercado Pago: cardForm creation exception", err);
+          throw err;
         }
       };
 
@@ -575,15 +697,8 @@ export async function destroyCardForm(cardForm: any, containerId?: string) {
         container.innerHTML = "";
       }
     }
-    // tentar limpar quaisquer contexts internos do SDK após destruir o form
-    try {
-      clearMercadoPagoContexts();
-      try { (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'after_destroy_clear_contexts' }); } catch {}
-      console.log("Mercado Pago: clearMercadoPagoContexts chamado após destroyCardForm");
-    } catch (e) {
-      try { (window as any).__mpDebugLogs.push({ ts: Date.now(), msg: 'after_destroy_clear_failed', error: String(e) }); } catch {}
-      console.warn("Mercado Pago: falha ao limpar contexts após destroyCardForm", e);
-    }
+    // Nota: clearMercadoPagoContexts() foi removido pois causava erro "Cannot read properties of undefined (reading 'backgroundColor')" 
+    // na segunda tentativa de assinatura. O SDK do Mercado Pago não gosta quando tentamos destruir seus contextos internos.
   } catch (error) {
     console.warn("Mercado Pago: falha ao destruir o form de cartão", error);
   }

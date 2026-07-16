@@ -50,7 +50,7 @@ export function SubscriptionCheckoutForm({
         setIsCardFormReady(false);
 
         try {
-          await destroyCardForm(existingCardForm);
+          await destroyCardForm(existingCardForm, targetContainerId);
         } catch (error) {
           console.warn("SubscriptionCheckoutForm: erro ao desmontar card form", error);
         }

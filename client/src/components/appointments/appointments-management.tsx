@@ -218,22 +218,23 @@ export default function AppointmentsManagement() {
   };
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow-md">
-      <div className="flex justify-between items-center mb-6">
-        <div className="flex items-center gap-3">
+    <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md max-w-full">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-6">
+        <div className="flex items-center gap-3 min-w-0">
           <h3 className="text-xl font-bold text-gray-800">Agendamentos</h3>
           {unseenAppointments.length > 0 && (
-            <Badge className="bg-red-100 text-red-700 border border-red-200 hover:bg-red-100">
+            <Badge className="bg-red-100 text-red-700 border border-red-200 hover:bg-red-100 shrink-0">
               {unseenAppointments.length} novo{unseenAppointments.length > 1 ? "s" : ""}
             </Badge>
           )}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
           {unseenAppointments.length > 0 && (
             <Button
               type="button"
               variant="outline"
               size="sm"
+              className="w-full sm:w-auto whitespace-normal"
               onClick={() => markSeenMutation.mutate()}
               disabled={markSeenMutation.isPending}
             >
@@ -241,7 +242,7 @@ export default function AppointmentsManagement() {
             </Button>
           )}
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger className="w-full sm:w-[180px]">
               <SelectValue placeholder="Filtrar por status" />
             </SelectTrigger>
             <SelectContent>
@@ -255,7 +256,7 @@ export default function AppointmentsManagement() {
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto max-w-full">
         {isLoading ? (
           <div className="p-6 text-center">
             <p className="text-gray-500">Carregando agendamentos...</p>
@@ -266,7 +267,7 @@ export default function AppointmentsManagement() {
             <p className="text-gray-400">Quando os clientes fizerem agendamentos, eles aparecerão aqui.</p>
           </div>
         ) : (
-          <table className="min-w-full">
+          <table className="min-w-[900px] w-full">
             <thead>
               <tr className="bg-gray-50">
                 <th className="py-3 px-4 text-left">Cliente</th>

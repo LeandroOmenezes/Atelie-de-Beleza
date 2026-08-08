@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ShieldCheck, Lock, CreditCard, BadgeCheck, Sparkles, CircleCheckBig, Landmark, CreditCard as CreditCardIcon } from "lucide-react";
-import { createCardForm, destroyCardForm, tokenizeCard } from "@/lib/mercadopago";
+import { createCardForm, destroyCardForm } from "@/lib/mercadopago";
 import { useToast } from "@/hooks/use-toast";
 
 interface SubscriptionCheckoutFormProps {
@@ -167,12 +167,24 @@ export function SubscriptionCheckoutForm({
       return;
     }
 
+    const cardNumber = (document.getElementById(`${containerId}-cardNumber`) as HTMLInputElement | null)?.value?.trim() || "";
+    const cardExpirationDate = (document.getElementById(`${containerId}-cardExpirationDate`) as HTMLInputElement | null)?.value?.trim() || "";
+    const securityCode = (document.getElementById(`${containerId}-securityCode`) as HTMLInputElement | null)?.value?.trim() || "";
+    const cardholderName = (document.getElementById(`${containerId}-cardholderName`) as HTMLInputElement | null)?.value?.trim() || "";
+    const identificationNumber = (document.getElementById(`${containerId}-identificationNumber`) as HTMLInputElement | null)?.value?.trim() || "";
+
+    if (!cardNumber || !cardExpirationDate || !securityCode || !cardholderName || !identificationNumber) {
+      toast({
+        title: "Cartão incompleto",
+        description: "Preencha todos os campos do cartão e o CPF do titular para continuar.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsLoading(true);
     try {
-      // Tokeniza o cartão
-      const token = await tokenizeCard(cardForm);
-
-      // Envia para o servidor criar a assinatura
+      // Envia os dados do cartão para o servidor tokenizar com as credenciais do Mercado Pago
       const response = await fetch("/api/subscriptions/checkout", {
         method: "POST",
         credentials: "include",
@@ -181,7 +193,11 @@ export function SubscriptionCheckoutForm({
         },
         body: JSON.stringify({
           planId,
-          token,
+          cardNumber,
+          cardExpirationDate,
+          securityCode,
+          cardholderName,
+          identificationNumber,
         }),
       });
 
@@ -210,8 +226,9 @@ export function SubscriptionCheckoutForm({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-md border-0 shadow-2xl transition-all duration-300 ease-out">
-        <DialogHeader className="space-y-3">
+      <DialogContent className="sm:max-w-md border-0 shadow-2xl transition-all duration-300 ease-out overflow-hidden p-4 sm:p-5">
+        <div className="max-h-[76vh] overflow-y-auto overflow-x-hidden pr-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <DialogHeader className="space-y-2">
           <div className="flex items-center justify-between rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50 px-3 py-2">
             <div className="flex items-center gap-2">
               <div className="rounded-full bg-white p-1.5 shadow-sm">
@@ -232,8 +249,8 @@ export function SubscriptionCheckoutForm({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 animate-[fadeIn_0.25s_ease-out]">
-          <Card className="border-blue-100 bg-gradient-to-r from-blue-50 via-white to-blue-50 p-4 shadow-sm">
+        <div className="space-y-3 animate-[fadeIn_0.25s_ease-out]">
+          <Card className="border-blue-100 bg-gradient-to-r from-blue-50 via-white to-blue-50 p-3 shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-medium text-blue-700">Plano escolhido</p>
@@ -250,7 +267,7 @@ export function SubscriptionCheckoutForm({
             </div>
           </Card>
 
-          <div className="rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-white p-3 text-sm text-emerald-700 shadow-sm">
+          <div className="rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-white p-2.5 text-sm text-emerald-700 shadow-sm">
             <div className="flex items-center gap-2 font-medium">
               <Lock className="h-4 w-4" />
               Pagamento processado com tecnologia de segurança do Mercado Pago
@@ -302,6 +319,17 @@ export function SubscriptionCheckoutForm({
                 <div id={`${containerId}-securityCode`} style={{ minHeight: '40px', display: 'block' }} />
               </div>
               <div id={`${containerId}-cardholderName`} style={{ minHeight: '40px', display: 'block' }} />
+              <div className="rounded-md border border-gray-200 bg-gray-50 p-2">
+                <label className="mb-1 block text-xs font-medium text-gray-700">CPF do titular do cartão</label>
+                <input
+                  id={`${containerId}-identificationNumber`}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="000.000.000-00"
+                  className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
             </div>
           </form>
 
@@ -329,23 +357,24 @@ export function SubscriptionCheckoutForm({
             </div>
           )}
 
-          <div className="flex gap-2 pt-4">
+          <div className="flex gap-2 pt-3">
             <Button
-              variant="outline"
+              variant="ghost"
               onClick={() => handleOpenChange(false)}
               disabled={isLoading}
-              className="flex-1"
+              className="flex-1 border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900"
             >
               Cancelar
             </Button>
             <Button
               onClick={handleSubscribe}
               disabled={isLoading || !isCardFormReady}
-              className="flex-1"
+              className="flex-1 bg-blue-500 text-white shadow-sm hover:bg-blue-600"
             >
               {isLoading ? "Processando..." : !isCardFormReady ? "Carregando formulário..." : `Assinar por R$ ${planPrice.toFixed(2)}`}
             </Button>
           </div>
+        </div>
         </div>
       </DialogContent>
     </Dialog>

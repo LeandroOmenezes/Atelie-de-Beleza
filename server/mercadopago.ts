@@ -23,6 +23,59 @@ function initializeMercadoPago() {
 
 initializeMercadoPago();
 
+function collectErrorMessages(error: any): string[] {
+  const values: string[] = [];
+  const queue = [error, error?.cause, error?.response, error?.response?.cause, error?.response?.data];
+
+  while (queue.length) {
+    const current = queue.shift();
+    if (!current || typeof current !== "object") {
+      continue;
+    }
+
+    if (typeof current.message === "string" && current.message.trim()) {
+      values.push(current.message);
+    }
+    if (typeof current.error === "string" && current.error.trim()) {
+      values.push(current.error);
+    }
+    if (typeof current.description === "string" && current.description.trim()) {
+      values.push(current.description);
+    }
+    if (typeof current.status === "number") {
+      values.push(String(current.status));
+    }
+
+    if (Array.isArray(current)) {
+      queue.push(...current);
+      continue;
+    }
+
+    if (current.cause) queue.push(current.cause);
+    if (current.response) queue.push(current.response);
+    if (current.data) queue.push(current.data);
+  }
+
+  return values;
+}
+
+export function isPreapprovalPlanVisibilityError(error: any): boolean {
+  const messages = collectErrorMessages(error).join(" ").toLowerCase();
+  const status = error?.status || error?.response?.status || error?.cause?.status || error?.cause?.response?.status;
+
+  return (
+    status === 404 &&
+    /template with id|does not exist|not exist|preapproval_plan/i.test(messages)
+  );
+}
+
+export function isCardTokenServiceError(error: any): boolean {
+  const messages = collectErrorMessages(error).join(" ").toLowerCase();
+  const status = error?.status || error?.response?.status || error?.cause?.status || error?.cause?.response?.status;
+
+  return status === 404 && /card token service not found|card token/i.test(messages);
+}
+
 function extractMercadoPagoRequestId(error: any): string | undefined {
   const fromResponseHeaders =
     error?.response?.headers?.["x-request-id"] ||
@@ -67,6 +120,12 @@ export interface TokenizeCardData {
   securityCode: string;
   identificationType?: string;
   identificationNumber?: string;
+}
+
+export function getMercadoPagoRequestOptions(accessToken: string | undefined) {
+  return {
+    testToken: Boolean(accessToken?.startsWith("TEST-")),
+  };
 }
 
 function getMercadoPagoClient() {
@@ -123,9 +182,7 @@ export async function tokenizeCardWithMercadoPago(data: TokenizeCardData) {
   try {
     const tokenData = await client.create({
       body,
-      requestOptions: {
-        testToken: isSandbox,
-      },
+      requestOptions: getMercadoPagoRequestOptions(process.env.MERCADOPAGO_ACCESS_TOKEN),
     });
 
     if (!tokenData?.id) {
@@ -264,27 +321,42 @@ export async function createPreapproval(
       planBody.back_url = backUrl;
     }
 
-    const planResult = await preApprovalPlan.create({
-      body: planBody,
-    } as any);
+    let planResult;
+    try {
+      planResult = await preApprovalPlan.create({
+        body: planBody,
+        requestOptions: getMercadoPagoRequestOptions(process.env.MERCADOPAGO_ACCESS_TOKEN),
+      } as any);
+    } catch (planError: any) {
+      console.warn("[MercadoPago][Subscriptions] preapproval plan creation failed. Continuing without plan association.", {
+        planName,
+        planPrice,
+        message: planError?.message,
+        status: planError?.status || planError?.response?.status,
+      });
+    }
 
     preapprovalPlanId = (planResult as any)?.id;
 
-    console.info("[MercadoPago][Subscriptions] preapproval_plan created", {
-      preapprovalPlanId,
-      planName,
-      planPrice,
-      backUrl,
-      payerEmail: email,
-    });
-
-    if (!preapprovalPlanId) {
-      throw new Error("Falha ao criar plano de assinatura no Mercado Pago");
+    if (preapprovalPlanId) {
+      console.info("[MercadoPago][Subscriptions] preapproval_plan created", {
+        preapprovalPlanId,
+        planName,
+        planPrice,
+        backUrl,
+        payerEmail: email,
+      });
+    } else {
+      console.info("[MercadoPago][Subscriptions] no preapproval_plan created; proceeding without plan association", {
+        planName,
+        planPrice,
+        backUrl,
+        payerEmail: email,
+      });
     }
 
-    // 2) Cria assinatura vinculando ao plano recém-criado.
+    // 2) Tenta criar a assinatura vinculando ao plano recém-criado.
     const preapprovalBody: any = {
-        preapproval_plan_id: preapprovalPlanId,
         payer_email: email,
         card_token_id: token,
         external_reference: planName,
@@ -300,13 +372,38 @@ export async function createPreapproval(
         },
       };
 
+    if (preapprovalPlanId) {
+      preapprovalBody.preapproval_plan_id = preapprovalPlanId;
+    }
+
     if (backUrl) {
       preapprovalBody.back_url = backUrl;
     }
 
-    const result = await preApproval.create({
-      body: preapprovalBody,
-    } as any);
+    let result;
+    try {
+      result = await preApproval.create({
+        body: preapprovalBody,
+        requestOptions: getMercadoPagoRequestOptions(process.env.MERCADOPAGO_ACCESS_TOKEN),
+      } as any);
+    } catch (error: any) {
+      if (!isPreapprovalPlanVisibilityError(error)) {
+        throw error;
+      }
+
+      console.warn("[MercadoPago][Subscriptions] preapproval plan visibility error. Retrying without plan association.", {
+        preapprovalPlanId,
+        requestId: extractMercadoPagoRequestId(error),
+      });
+
+      const fallbackBody = { ...preapprovalBody };
+      delete fallbackBody.preapproval_plan_id;
+
+      result = await preApproval.create({
+        body: fallbackBody,
+        requestOptions: getMercadoPagoRequestOptions(process.env.MERCADOPAGO_ACCESS_TOKEN),
+      } as any);
+    }
 
     console.info("[MercadoPago][Subscriptions] preapproval created", {
       preapprovalId: (result as any).id,
@@ -333,6 +430,11 @@ export async function createPreapproval(
     const enrichedMessage = requestId
       ? `${message} (request_id: ${requestId})`
       : message;
+
+    if (isCardTokenServiceError(error)) {
+      throw new Error("O token do cartão não foi aceito pelo Mercado Pago neste ambiente. Tente novamente ou use um cartão válido para o ambiente configurado.");
+    }
+
     throw new Error(enrichedMessage);
   }
 }

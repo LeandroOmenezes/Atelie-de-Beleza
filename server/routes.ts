@@ -2289,8 +2289,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { token, cardNumber, cardholderName, cardExpirationDate, securityCode } = req.body;
 
       let paymentToken = typeof token === "string" ? token : "";
+      const hasCardDetails = Boolean(cardNumber || cardholderName || cardExpirationDate || securityCode);
 
-      if (!paymentToken && (cardNumber || cardholderName || cardExpirationDate || securityCode)) {
+      if (hasCardDetails) {
         try {
           const tokenizedCard = await mercadoPago.tokenizeCardWithMercadoPago({
             cardNumber,
@@ -2571,7 +2572,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "É necessário estar logado" });
       }
 
-      const { planId, token, cardNumber, cardholderName, cardExpirationDate, securityCode } = req.body;
+      const { planId, token, cardNumber, cardholderName, cardExpirationDate, securityCode, identificationNumber } = req.body;
       const userId = (req.user as any).id;
 
       let paymentToken = typeof token === "string" ? token : "";
@@ -2583,6 +2584,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             cardholderName,
             cardExpirationDate,
             securityCode,
+            identificationNumber,
           });
           paymentToken = tokenizedCard.token;
         } catch (tokenizationError: any) {
@@ -2591,7 +2593,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (!planId || !paymentToken) {
-        return res.status(400).json({ message: "Dados inválidos" });
+        return res.status(400).json({ message: "Dados do cartão não disponíveis. Preencha os campos e tente novamente." });
       }
 
       const plan = await storage.getSubscriptionPlanById(Number(planId));

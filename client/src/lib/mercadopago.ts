@@ -425,6 +425,7 @@ class FallbackCardForm {
           <input type="text" id="${this.formId}-securityCode" placeholder="CVV" maxlength="4" data-field="securityCode" autocomplete="cc-csc" />
         </div>
         <input type="text" id="${this.formId}-cardholderName" placeholder="Nome do titular" data-field="cardholderName" autocomplete="cc-name" />
+        <input type="text" id="${this.formId}-identificationNumber" placeholder="CPF do titular do cartão" maxlength="14" data-field="identificationNumber" autocomplete="off" />
       </div>
       <style>
         .fallback-card-form input { width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid #d1d5db; border-radius: 8px; box-sizing: border-box; font-size: 14px; }
@@ -444,9 +445,10 @@ class FallbackCardForm {
     const cardExpirationDate = this.readField("cardExpirationDate");
     const securityCode = this.readField("securityCode");
     const cardholderName = this.readField("cardholderName");
+    const identificationNumber = this.readField("identificationNumber");
 
-    if (!cardNumber || !cardExpirationDate || !securityCode || !cardholderName) {
-      throw new Error("Por favor, preencha todos os campos do cartão");
+    if (!cardNumber || !cardExpirationDate || !securityCode || !cardholderName || !identificationNumber) {
+      throw new Error("Por favor, preencha todos os campos do cartão e o CPF do titular");
     }
 
     const normalizedCardNumber = cardNumber.replace(/\s+/g, "");
@@ -477,7 +479,7 @@ class FallbackCardForm {
             name: cardholderName,
             identification: {
               type: "CPF",
-              number: "12345678909",
+              number: identificationNumber.replace(/\D/g, ""),
             },
           },
         }),

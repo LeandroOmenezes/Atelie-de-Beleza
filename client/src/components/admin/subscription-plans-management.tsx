@@ -19,6 +19,7 @@ export function SubscriptionPlansManagement() {
     price: 0,
     includedServiceIds: "[]",
     active: true,
+    featured: false,
   });
   const [priceItems, setPriceItems] = useState<Array<{ id: number; name?: string }>>([]);
   const [services, setServices] = useState<Array<{ id: number; name?: string }>>([]);
@@ -104,6 +105,7 @@ export function SubscriptionPlansManagement() {
         price: plan.price,
         includedServiceIds: plan.includedServiceIds || "[]",
         active: plan.active,
+        featured: Boolean(plan.featured),
       });
     } else {
       setEditingPlan(null);
@@ -114,6 +116,7 @@ export function SubscriptionPlansManagement() {
         price: 0,
         includedServiceIds: "[]",
         active: true,
+        featured: false,
       });
     }
     setShowDialog(true);
@@ -128,6 +131,7 @@ export function SubscriptionPlansManagement() {
       price: 0,
       includedServiceIds: "[]",
       active: true,
+      featured: false,
     });
   };
 
@@ -236,6 +240,7 @@ export function SubscriptionPlansManagement() {
         price: formData.price,
         includedServiceIds: includedServiceIdsString, // Enviar como string JSON (ex: "[]" ou "[1,2]")
         active: formData.active ?? true,
+        featured: formData.featured ?? false,
       };
 
       console.log("Saving subscription plan", payload, url, method);
@@ -319,7 +324,7 @@ export function SubscriptionPlansManagement() {
           <Card key={plan.id} className="p-6">
             <div className="flex justify-between items-start gap-4">
               <div className="flex-1">
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <h3 className="text-xl font-bold">{plan.name}</h3>
                   {plan.active ? (
                     <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
@@ -330,6 +335,11 @@ export function SubscriptionPlansManagement() {
                       Inativo
                     </span>
                   )}
+                  {plan.featured ? (
+                    <span className="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded">
+                      Mais escolhido
+                    </span>
+                  ) : null}
                 </div>
                 <p className="text-gray-600 mb-2">{plan.description}</p>
                 <p className="text-sm text-gray-500">
@@ -390,123 +400,140 @@ export function SubscriptionPlansManagement() {
 
       {/* Dialog de Edição/Criação */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {editingPlan ? "Editar Plano" : "Novo Plano"}
-            </DialogTitle>
-            <DialogDescription>
-              Preencha os detalhes do plano de assinatura
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-hidden p-4 sm:p-5">
+          <div className="flex max-h-[80vh] flex-col overflow-hidden">
+            <div className="overflow-y-auto overflow-x-hidden pr-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300">
+              <DialogHeader>
+                <DialogTitle>
+                  {editingPlan ? "Editar Plano" : "Novo Plano"}
+                </DialogTitle>
+                <DialogDescription>
+                  Preencha os detalhes do plano de assinatura
+                </DialogDescription>
+              </DialogHeader>
 
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium">Nome</label>
-              <Input
-                value={formData.name || ""}
-                onChange={(e) =>
-                  setFormData({ ...formData, name: e.target.value })
-                }
-                placeholder="Ex: Plano Premium"
-              />
-            </div>
+              <div className="space-y-4 pt-2">
+                <div>
+                  <label className="text-sm font-medium">Nome</label>
+                  <Input
+                    value={formData.name || ""}
+                    onChange={(e) =>
+                      setFormData({ ...formData, name: e.target.value })
+                    }
+                    placeholder="Ex: Plano Premium"
+                  />
+                </div>
 
-            <div>
-              <label className="text-sm font-medium">Descrição</label>
-              <Input
-                value={formData.description || ""}
-                onChange={(e) =>
-                  setFormData({ ...formData, description: e.target.value })
-                }
-                placeholder="Ex: Acesso a todos os serviços"
-              />
-            </div>
+                <div>
+                  <label className="text-sm font-medium">Descrição</label>
+                  <Input
+                    value={formData.description || ""}
+                    onChange={(e) =>
+                      setFormData({ ...formData, description: e.target.value })
+                    }
+                    placeholder="Ex: Acesso a todos os serviços"
+                  />
+                </div>
 
-            <div>
-              <label className="text-sm font-medium">Preço Mensal (R$)</label>
-              <Input
-                type="number"
-                step="0.01"
-                value={formData.price || ""}
-                onChange={(e) =>
-                  setFormData({ ...formData, price: parseFloat(e.target.value) })
-                }
-                placeholder="0.00"
-              />
-            </div>
+                <div>
+                  <label className="text-sm font-medium">Preço Mensal (R$)</label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={formData.price || ""}
+                    onChange={(e) =>
+                      setFormData({ ...formData, price: parseFloat(e.target.value) })
+                    }
+                    placeholder="0.00"
+                  />
+                </div>
 
-            <div>
-              <label className="text-sm font-medium">Serviços Inclusos (opcional)</label>
+                <div className="grid gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={formData.active || false}
+                      onChange={(e) =>
+                        setFormData({ ...formData, active: e.target.checked })
+                      }
+                    />
+                    Plano ativo
+                  </label>
 
-              {/* Selected badges */}
-              <div className="flex flex-wrap gap-2 mt-2 mb-2">
-                {(() => {
-                  if (selectedIds.length === 0) return <span className="text-xs text-gray-500">Nenhum serviço selecionado</span>;
-                  const idToName = new Map<number, string>();
-                  priceItems.forEach((s) => {
-                    if (s?.id != null && s?.name) idToName.set(s.id, s.name);
-                  });
-                  return selectedIds.map((id) => (
-                    <Badge key={id} variant="secondary">{idToName.get(id) ?? `Serviço #${id}`}</Badge>
-                  ));
-                })()}
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={formData.featured || false}
+                      onChange={(e) =>
+                        setFormData({ ...formData, featured: e.target.checked })
+                      }
+                    />
+                    Tornar plano mais escolhido
+                  </label>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Serviços Inclusos (opcional)</label>
+
+                  <div className="mt-2 mb-2 flex flex-wrap gap-2">
+                    {(() => {
+                      if (selectedIds.length === 0) return <span className="text-xs text-gray-500">Nenhum serviço selecionado</span>;
+                      const idToName = new Map<number, string>();
+                      priceItems.forEach((s) => {
+                        if (s?.id != null && s?.name) idToName.set(s.id, s.name);
+                      });
+                      return selectedIds.map((id) => (
+                        <Badge key={id} variant="secondary">{idToName.get(id) ?? `Serviço #${id}`}</Badge>
+                      ));
+                    })()}
+                  </div>
+
+                  <div className="max-h-40 overflow-auto rounded border p-2">
+                    {priceItems.length === 0 ? (
+                      <div className="text-sm text-gray-500">Nenhum serviço disponível</div>
+                    ) : (
+                      priceItems.map((s) => {
+                        const checked = selectedIds.includes(s.id);
+                        return (
+                          <label key={s.id} className="flex items-center gap-2 py-1">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                let next: number[];
+                                if (e.target.checked) {
+                                  next = Array.from(new Set([...selectedIds, s.id]));
+                                } else {
+                                  next = selectedIds.filter((id) => id !== s.id);
+                                }
+                                setSelectedIds(next);
+                                setFormData({ ...formData, includedServiceIds: JSON.stringify(next) });
+                              }}
+                            />
+                            <span className="text-sm">{s.name ?? `Serviço #${s.id}`}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">Deixe nenhum selecionado se o plano não incluir serviços específicos</p>
+                </div>
               </div>
+            </div>
 
-              {/* Checkbox list */}
-              <div className="max-h-40 overflow-auto border rounded p-2">
-                {priceItems.length === 0 ? (
-                  <div className="text-sm text-gray-500">Nenhum serviço disponível</div>
-                ) : (
-                  priceItems.map((s) => {
-                    const checked = selectedIds.includes(s.id);
-                    return (
-                      <label key={s.id} className="flex items-center gap-2 py-1">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(e) => {
-                            let next: number[];
-                            if (e.target.checked) {
-                              next = Array.from(new Set([...selectedIds, s.id]));
-                            } else {
-                              next = selectedIds.filter((id) => id !== s.id);
-                            }
-                            setSelectedIds(next);
-                            setFormData({ ...formData, includedServiceIds: JSON.stringify(next) });
-                          }}
-                        />
-                        <span className="text-sm">{s.name ?? `Serviço #${s.id}`}</span>
-                      </label>
-                    );
-                  })
-                )}
+            <div className="sticky bottom-0 z-10 mt-3 border-t border-gray-200 bg-white pt-3">
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={handleCloseDialog}
+                  className="flex-1"
+                >
+                  Cancelar
+                </Button>
+                <Button onClick={handleSave} className="flex-1">
+                  Salvar
+                </Button>
               </div>
-              <p className="text-xs text-gray-500 mt-1">Deixe nenhum selecionado se o plano não incluir serviços específicos</p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={formData.active || false}
-                onChange={(e) =>
-                  setFormData({ ...formData, active: e.target.checked })
-                }
-              />
-              <label className="text-sm">Ativo</label>
-            </div>
-
-            <div className="flex gap-2 pt-4">
-              <Button
-                variant="outline"
-                onClick={handleCloseDialog}
-                className="flex-1"
-              >
-                Cancelar
-              </Button>
-              <Button onClick={handleSave} className="flex-1">
-                Salvar
-              </Button>
             </div>
           </div>
         </DialogContent>

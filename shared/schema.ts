@@ -308,6 +308,7 @@ export const subscriptionPlans = pgTable("subscription_plans", {
   price: real("price").notNull(),
   includedServiceIds: text("included_service_ids"), // JSON array stored as text
   active: boolean("active").default(true).notNull(),
+  featured: boolean("featured").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -318,6 +319,7 @@ export const insertSubscriptionPlanSchema = createInsertSchema(subscriptionPlans
   price: z.number().min(0.01, "Preço deve ser maior que 0"),
   includedServiceIds: z.string().optional(), // JSON array as string
   active: z.boolean().optional(),
+  featured: z.boolean().optional(),
 }).omit({ id: true, createdAt: true, updatedAt: true });
 
 export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;

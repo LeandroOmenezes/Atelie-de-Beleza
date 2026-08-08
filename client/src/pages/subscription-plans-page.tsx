@@ -153,14 +153,15 @@ export function SubscriptionPlansPage() {
     );
   }
 
-  const recommendedPlanId = plans.reduce((bestId, plan) => {
+  const featuredPlan = plans.find((plan) => plan.featured);
+  const recommendedPlanId = featuredPlan?.id ?? plans.reduce((bestId, plan) => {
     const bestPlan = plans.find((p) => p.id === bestId);
     if (!bestPlan) return plan.id;
     return plan.price > bestPlan.price ? plan.id : bestId;
   }, plans[0]?.id);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white p-4 md:p-8">
+    <div className="min-h-screen overflow-x-hidden bg-gradient-to-b from-gray-50 to-white p-4 md:p-8 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="text-center mb-12">

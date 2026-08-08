@@ -383,7 +383,7 @@ export function SubscriptionPlansPage() {
             </div>
 
             <div className="mt-6 rounded-lg border border-emerald-300/30 bg-emerald-300/10 p-4 text-sm text-emerald-100">
-              Transparencia para voce: valor e periodicidade sao exibidos antes da confirmacao. O cancelamento pode ser solicitado diretamente no seu painel.
+              Transparência para você: valor e periodicidade são exibidos antes da confirmação. O cancelamento pode ser solicitado diretamente no seu painel.
             </div>
           </div>
         </Card>

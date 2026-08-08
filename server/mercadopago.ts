@@ -285,6 +285,16 @@ export async function createAppointmentPayment(
         transaction_amount: amount,
         token: token,
         description: `Agendamento #${appointmentId}: ${description}`,
+        items: [
+          {
+            id: String(appointmentId),
+            title: description,
+            description: `Serviço de beleza referente ao agendamento #${appointmentId}`,
+            category_id: "services",
+            quantity: 1,
+            unit_price: amount,
+          },
+        ],
         installments: 1,
         payment_method_id: "credit_card",
         payer: {

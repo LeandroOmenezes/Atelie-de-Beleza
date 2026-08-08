@@ -2614,7 +2614,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(200).json({ success: true, redirectUrl: planResult.initPoint });
     } catch (error: any) {
       console.error("Erro ao criar assinatura:", error);
-      const message = error?.message || "Erro ao criar assinatura";
+      const message = mercadoPago.translateMercadoPagoError(error);
       res.status(502).json({ message });
     }
   });
@@ -2674,7 +2674,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json({ subscription });
     } catch (error: any) {
       console.error("Erro ao concluir assinatura após retorno:", error);
-      res.status(502).json({ message: error?.message || "Não foi possível confirmar a assinatura" });
+      res.status(502).json({ message: mercadoPago.translateMercadoPagoError(error) });
     }
   });
 

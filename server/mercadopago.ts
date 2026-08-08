@@ -98,6 +98,21 @@ function extractMercadoPagoRequestId(error: any): string | undefined {
   return undefined;
 }
 
+export function translateMercadoPagoError(error: any): string {
+  const message = String(error?.message || error || "").trim();
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("unauthorized access to resource")) {
+    return "O Mercado Pago não autorizou esta operação. Verifique se as credenciais da aplicação Vendedor no ambiente de produção estão corretas e pertencem à mesma aplicação que criou o plano.";
+  }
+
+  if (normalized.includes("card token service not found")) {
+    return "O Mercado Pago não reconheceu o cartão neste ambiente. Confira se as credenciais e o ambiente de teste estão corretos.";
+  }
+
+  return message || "Não foi possível concluir a operação no Mercado Pago.";
+}
+
 export function getValidMercadoPagoBackUrl(): string | undefined {
   const raw = (process.env.APP_BASE_URL || "").trim();
   if (!raw) return "https://www.mercadopago.com.br";
@@ -426,7 +441,7 @@ export async function createPreapprovalPlan(
     };
   } catch (error: any) {
     const requestId = extractMercadoPagoRequestId(error);
-    const message = error?.message || "Falha ao criar plano recorrente";
+    const message = translateMercadoPagoError(error);
     throw new Error(requestId ? `${message} (request_id: ${requestId})` : message);
   }
 }

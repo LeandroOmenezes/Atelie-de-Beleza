@@ -2638,31 +2638,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ subscription: existing });
       }
 
-      const [plan, preapproval] = await Promise.all([
-        storage.getSubscriptionPlanById(planId),
-        mercadoPago.getPreapproval(preapprovalId),
-      ]);
+      const plan = await storage.getSubscriptionPlanById(planId);
 
       if (!plan) {
         return res.status(404).json({ message: "Plano não encontrado" });
       }
 
-      if (!["authorized", "paused", "pending"].includes(preapproval.status)) {
-        return res.status(400).json({ message: `Assinatura não autorizada: ${preapproval.status}` });
+      let preapprovalStatus = "pending";
+      let nextBillingDate: Date | undefined;
+      try {
+        const preapproval = await mercadoPago.getPreapproval(preapprovalId);
+        preapprovalStatus = preapproval.status;
+        nextBillingDate = preapproval.nextBillingDate ? new Date(preapproval.nextBillingDate) : undefined;
+      } catch (lookupError: any) {
+        console.warn("Não foi possível consultar a assinatura no retorno; aguardando Webhook do Mercado Pago:", {
+          preapprovalId,
+          message: lookupError?.message,
+        });
       }
 
       const startDate = new Date();
-      const nextBillingDate = new Date(preapproval.nextBillingDate || startDate);
-      if (!preapproval.nextBillingDate) {
-        nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
+      const billingDate = nextBillingDate || new Date(startDate);
+      if (!nextBillingDate) {
+        billingDate.setMonth(billingDate.getMonth() + 1);
       }
 
       const subscription = await storage.createUserSubscription({
         userId,
         planId,
         mpPreapprovalId: preapprovalId,
-        status: preapproval.status === "authorized" ? "authorized" : "pending",
-        nextBillingDate,
+        status: preapprovalStatus === "authorized" ? "authorized" : "pending",
+        nextBillingDate: billingDate,
       });
 
       res.status(201).json({ subscription });

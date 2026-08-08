@@ -452,7 +452,8 @@ export async function getPreapproval(preapprovalId: string) {
     };
   } catch (error) {
     console.error("Erro ao consultar assinatura:", error);
-    throw new Error("Falha ao consultar status da assinatura");
+    const message = (error as any)?.message || "Falha ao consultar status da assinatura";
+    throw new Error(message);
   }
 }
 

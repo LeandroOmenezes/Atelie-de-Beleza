@@ -23,7 +23,7 @@ export function SubscriptionCheckoutForm({
   planPrice,
   isOpen,
   onClose,
-  onSuccess,
+  onSuccess: _onSuccess,
 }: SubscriptionCheckoutFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isCardFormReady, setIsCardFormReady] = useState(false);
@@ -157,34 +157,8 @@ export function SubscriptionCheckoutForm({
   };
 
   const handleSubscribe = async () => {
-    const cardForm = cardFormRef.current;
-    if (!cardForm || !isCardFormReady) {
-      toast({
-        title: "Aguardando formulário",
-        description: "O formulário de pagamento ainda está carregando. Tente novamente em alguns instantes.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const cardNumber = (document.getElementById(`${containerId}-cardNumber`) as HTMLInputElement | null)?.value?.trim() || "";
-    const cardExpirationDate = (document.getElementById(`${containerId}-cardExpirationDate`) as HTMLInputElement | null)?.value?.trim() || "";
-    const securityCode = (document.getElementById(`${containerId}-securityCode`) as HTMLInputElement | null)?.value?.trim() || "";
-    const cardholderName = (document.getElementById(`${containerId}-cardholderName`) as HTMLInputElement | null)?.value?.trim() || "";
-    const identificationNumber = (document.getElementById(`${containerId}-identificationNumber`) as HTMLInputElement | null)?.value?.trim() || "";
-
-    if (!cardNumber || !cardExpirationDate || !securityCode || !cardholderName || !identificationNumber) {
-      toast({
-        title: "Cartão incompleto",
-        description: "Preencha todos os campos do cartão e o CPF do titular para continuar.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     setIsLoading(true);
     try {
-      // Envia os dados do cartão para o servidor tokenizar com as credenciais do Mercado Pago
       const response = await fetch("/api/subscriptions/checkout", {
         method: "POST",
         credentials: "include",
@@ -193,11 +167,6 @@ export function SubscriptionCheckoutForm({
         },
         body: JSON.stringify({
           planId,
-          cardNumber,
-          cardExpirationDate,
-          securityCode,
-          cardholderName,
-          identificationNumber,
         }),
       });
 
@@ -207,12 +176,11 @@ export function SubscriptionCheckoutForm({
       }
 
       const data = await response.json();
-      toast({
-        title: "Sucesso!",
-        description: `Você se inscreveu no plano ${planName}! Primeira cobrança será em 1 mês.`,
-      });
+      if (!data.redirectUrl) {
+        throw new Error("Mercado Pago não retornou o link de autorização");
+      }
 
-      onSuccess();
+      window.location.assign(data.redirectUrl);
     } catch (error: any) {
       toast({
         title: "Erro na assinatura",
@@ -301,7 +269,17 @@ export function SubscriptionCheckoutForm({
             </div>
           </div>
 
-          <form id={containerId} key={containerId} className="space-y-4" noValidate style={{ display: 'block' }}>
+          <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4 text-sm text-blue-900">
+            <div className="flex items-center gap-2 font-semibold">
+              <Landmark className="h-4 w-4 text-blue-700" />
+              Você será direcionado ao Mercado Pago
+            </div>
+            <p className="mt-2 text-blue-800">
+              A autorização do cartão e da assinatura recorrente será concluída com segurança no ambiente oficial do Mercado Pago.
+            </p>
+          </div>
+
+          <form id={containerId} key={containerId} className="hidden" noValidate>
             <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
@@ -368,10 +346,10 @@ export function SubscriptionCheckoutForm({
             </Button>
             <Button
               onClick={handleSubscribe}
-              disabled={isLoading || !isCardFormReady}
+              disabled={isLoading}
               className="flex-1 bg-blue-500 text-white shadow-sm hover:bg-blue-600"
             >
-              {isLoading ? "Processando..." : !isCardFormReady ? "Carregando formulário..." : `Assinar por R$ ${planPrice.toFixed(2)}`}
+              {isLoading ? "Abrindo Mercado Pago..." : "Continuar no Mercado Pago"}
             </Button>
           </div>
         </div>

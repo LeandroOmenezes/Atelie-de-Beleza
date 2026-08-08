@@ -2572,28 +2572,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "É necessário estar logado" });
       }
 
-      const { planId, token, cardNumber, cardholderName, cardExpirationDate, securityCode, identificationNumber } = req.body;
+      const { planId } = req.body;
       const userId = (req.user as any).id;
 
-      let paymentToken = typeof token === "string" ? token : "";
-
-      if (!paymentToken && (cardNumber || cardholderName || cardExpirationDate || securityCode)) {
-        try {
-          const tokenizedCard = await mercadoPago.tokenizeCardWithMercadoPago({
-            cardNumber,
-            cardholderName,
-            cardExpirationDate,
-            securityCode,
-            identificationNumber,
-          });
-          paymentToken = tokenizedCard.token;
-        } catch (tokenizationError: any) {
-          return res.status(400).json({ message: tokenizationError?.message || "Erro ao tokenizar cartão" });
-        }
-      }
-
-      if (!planId || !paymentToken) {
-        return res.status(400).json({ message: "Dados do cartão não disponíveis. Preencha os campos e tente novamente." });
+      if (!planId) {
+        return res.status(400).json({ message: "Plano não informado" });
       }
 
       const plan = await storage.getSubscriptionPlanById(Number(planId));
@@ -2601,45 +2584,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Plano não encontrado" });
       }
 
-      // Create preapproval on Mercado Pago
-      const user = await storage.getUser(userId);
-      const preapprovalResult = await mercadoPago.createPreapproval(
-        paymentToken,
-        plan.price,
-        plan.name,
-        user?.email || user?.username || "",
-        new Date()
-      );
-
-      // Save subscription to database
-      const startDate = new Date();
-      const nextBillingDate = new Date(startDate);
-      nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
-
-      const subscription = await storage.createUserSubscription({
-        userId,
-        planId: Number(planId),
-        mpPreapprovalId: preapprovalResult.id,
-        status: "authorized",
-        nextBillingDate,
-      });
-
-      if (user?.email || user?.username) {
-        void sendSubscriptionApprovedEmail({
-          to: user.email || user.username || "",
-          customerName: user.name,
-          planName: plan.name,
-          planPrice: Number(plan.price),
-          nextBillingDate,
-        }).catch((error) => {
-          console.warn("Falha ao enviar email de assinatura aprovada:", error);
+      const configuredBaseUrl = (process.env.APP_BASE_URL || "").trim();
+      let baseReturnUrl: string;
+      try {
+        const parsedBaseUrl = new URL(configuredBaseUrl);
+        if (parsedBaseUrl.protocol !== "https:") {
+          throw new Error("APP_BASE_URL precisa usar HTTPS");
+        }
+        baseReturnUrl = parsedBaseUrl.toString();
+      } catch {
+        return res.status(500).json({
+          message: "Configure APP_BASE_URL com a URL HTTPS pública do seu aplicativo antes de iniciar a assinatura.",
         });
       }
 
-      res.status(201).json({ success: true, subscription });
-    } catch (error) {
+      const returnUrl = `${baseReturnUrl.replace(/\/$/, "")}/planos?subscription_plan_id=${encodeURIComponent(String(planId))}`;
+      const planResult = await mercadoPago.createPreapprovalPlan(
+        Number(plan.price),
+        plan.name,
+        returnUrl,
+      );
+
+      console.info("[MercadoPago][Subscriptions] redirect plan created", {
+        planId: planResult.id,
+        userId,
+        localPlanId: Number(planId),
+      });
+
+      res.status(200).json({ success: true, redirectUrl: planResult.initPoint });
+    } catch (error: any) {
       console.error("Erro ao criar assinatura:", error);
-      res.status(500).json({ message: "Erro ao criar assinatura" });
+      const message = error?.message || "Erro ao criar assinatura";
+      res.status(502).json({ message });
+    }
+  });
+
+  app.post("/api/subscriptions/complete", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "É necessário estar logado" });
+      }
+
+      const preapprovalId = typeof req.body?.preapprovalId === "string" ? req.body.preapprovalId : "";
+      const planId = Number(req.body?.planId);
+      const userId = (req.user as any).id;
+
+      if (!preapprovalId || !planId) {
+        return res.status(400).json({ message: "Dados de retorno da assinatura incompletos" });
+      }
+
+      const existing = await storage.getUserSubscriptionByPreapprovalId(preapprovalId);
+      if (existing) {
+        return res.json({ subscription: existing });
+      }
+
+      const [plan, preapproval] = await Promise.all([
+        storage.getSubscriptionPlanById(planId),
+        mercadoPago.getPreapproval(preapprovalId),
+      ]);
+
+      if (!plan) {
+        return res.status(404).json({ message: "Plano não encontrado" });
+      }
+
+      if (!["authorized", "paused", "pending"].includes(preapproval.status)) {
+        return res.status(400).json({ message: `Assinatura não autorizada: ${preapproval.status}` });
+      }
+
+      const startDate = new Date();
+      const nextBillingDate = new Date(preapproval.nextBillingDate || startDate);
+      if (!preapproval.nextBillingDate) {
+        nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
+      }
+
+      const subscription = await storage.createUserSubscription({
+        userId,
+        planId,
+        mpPreapprovalId: preapprovalId,
+        status: preapproval.status === "authorized" ? "authorized" : "pending",
+        nextBillingDate,
+      });
+
+      res.status(201).json({ subscription });
+    } catch (error: any) {
+      console.error("Erro ao concluir assinatura após retorno:", error);
+      res.status(502).json({ message: error?.message || "Não foi possível confirmar a assinatura" });
     }
   });
 

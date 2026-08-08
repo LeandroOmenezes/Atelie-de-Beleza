@@ -102,6 +102,47 @@ export function SubscriptionPlansPage() {
     fetchData();
   }, [user, navigate, toast]);
 
+  useEffect(() => {
+    if (isLoading || !user) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const preapprovalId = params.get("preapproval_id") || params.get("preapprovalId");
+    const planId = params.get("subscription_plan_id");
+    if (!preapprovalId || !planId) return;
+
+    const completeSubscription = async () => {
+      try {
+        const response = await fetch("/api/subscriptions/complete", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ preapprovalId, planId }),
+        });
+
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.message || "Não foi possível confirmar a assinatura");
+        }
+
+        const data = await response.json();
+        setUserSubscription(data.subscription || null);
+        window.history.replaceState({}, document.title, "/planos");
+        toast({
+          title: "Assinatura ativada",
+          description: "Sua assinatura foi confirmada pelo Mercado Pago.",
+        });
+      } catch (error: any) {
+        toast({
+          title: "Assinatura pendente",
+          description: error?.message || "O Mercado Pago ainda não confirmou a assinatura.",
+          variant: "destructive",
+        });
+      }
+    };
+
+    void completeSubscription();
+  }, [isLoading, user, toast]);
+
   const handleSubscribe = (plan: SubscriptionPlan) => {
     setSelectedPlan(plan);
     setShowCheckout(true);

@@ -1,10 +1,10 @@
-import { MercadoPagoConfig, Payment, PreApproval, CardToken, PreApprovalPlan } from "mercadopago";
+import { MercadoPagoConfig, Payment, PreApproval, PreApprovalPlan, CardToken } from "mercadopago";
 
 // Initialize Mercado Pago SDK
 let payment: any = null;
 let preApproval: any = null;
-let cardTokenClient: any = null;
 let preApprovalPlan: any = null;
+let cardTokenClient: any = null;
 
 function initializeMercadoPago() {
   if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
@@ -98,7 +98,7 @@ function extractMercadoPagoRequestId(error: any): string | undefined {
   return undefined;
 }
 
-function getValidMercadoPagoBackUrl(): string | undefined {
+export function getValidMercadoPagoBackUrl(): string | undefined {
   const raw = (process.env.APP_BASE_URL || "").trim();
   if (!raw) return "https://www.mercadopago.com.br";
 
@@ -126,6 +126,48 @@ export function getMercadoPagoRequestOptions(accessToken: string | undefined) {
   return {
     testToken: Boolean(accessToken?.startsWith("TEST-")),
   };
+}
+
+export function buildPreapprovalBody({
+  token,
+  planPrice,
+  planName,
+  email,
+  startDate,
+  backUrl,
+}: {
+  token: string;
+  planPrice: number;
+  planName: string;
+  email: string;
+  startDate: Date;
+  backUrl?: string;
+}) {
+  const today = new Date();
+  const endDate = new Date(today);
+  endDate.setFullYear(today.getFullYear() + 1);
+
+  const body: any = {
+    payer_email: email,
+    card_token_id: token,
+    external_reference: planName,
+    reason: `Plano de Assinatura: ${planName}`,
+    status: "authorized",
+    auto_recurring: {
+      frequency: 1,
+      frequency_type: "months",
+      transaction_amount: planPrice,
+      currency_id: "BRL",
+      start_date: startDate.toISOString(),
+      end_date: endDate.toISOString(),
+    },
+  };
+
+  if (backUrl) {
+    body.back_url = backUrl;
+  }
+
+  return body;
 }
 
 function getMercadoPagoClient() {
@@ -292,130 +334,35 @@ export async function createPreapproval(
   email: string,
   startDate: Date
 ) {
-  if (!preApproval || !preApprovalPlan) {
+  if (!preApproval) {
     throw new Error("Mercado Pago não está configurado. Configure MERCADOPAGO_ACCESS_TOKEN nas variáveis de ambiente.");
   }
-  
-  let preapprovalPlanId: string | undefined;
 
   try {
-    const today = new Date();
-    const endDate = new Date(today);
-    endDate.setFullYear(today.getFullYear() + 1); // Assinatura válida por 1 ano
     const backUrl = getValidMercadoPagoBackUrl();
+    const body = buildPreapprovalBody({
+      token,
+      planPrice,
+      planName,
+      email,
+      startDate,
+      backUrl,
+    });
 
-    // 1) Cria plano recorrente no Mercado Pago para usar assinatura com plano associado.
-    const planBody: any = {
-        reason: `Plano de Assinatura: ${planName}`,
-        auto_recurring: {
-          frequency: 1,
-          frequency_type: "months",
-          repetitions: 12,
-          billing_day_proportional: true,
-          transaction_amount: planPrice,
-          currency_id: "BRL",
-        },
-      };
-
-    if (backUrl) {
-      planBody.back_url = backUrl;
-    }
-
-    let planResult;
-    try {
-      planResult = await preApprovalPlan.create({
-        body: planBody,
-        requestOptions: getMercadoPagoRequestOptions(process.env.MERCADOPAGO_ACCESS_TOKEN),
-      } as any);
-    } catch (planError: any) {
-      console.warn("[MercadoPago][Subscriptions] preapproval plan creation failed. Continuing without plan association.", {
-        planName,
-        planPrice,
-        message: planError?.message,
-        status: planError?.status || planError?.response?.status,
-      });
-    }
-
-    preapprovalPlanId = (planResult as any)?.id;
-
-    if (preapprovalPlanId) {
-      console.info("[MercadoPago][Subscriptions] preapproval_plan created", {
-        preapprovalPlanId,
-        planName,
-        planPrice,
-        backUrl,
-        payerEmail: email,
-      });
-    } else {
-      console.info("[MercadoPago][Subscriptions] no preapproval_plan created; proceeding without plan association", {
-        planName,
-        planPrice,
-        backUrl,
-        payerEmail: email,
-      });
-    }
-
-    // 2) Tenta criar a assinatura vinculando ao plano recém-criado.
-    const preapprovalBody: any = {
-        payer_email: email,
-        card_token_id: token,
-        external_reference: planName,
-        reason: `Plano de Assinatura: ${planName}`,
-        status: "authorized",
-        auto_recurring: {
-          frequency: 1,
-          frequency_type: "months",
-          transaction_amount: planPrice,
-          currency_id: "BRL",
-          start_date: startDate.toISOString(),
-          end_date: endDate.toISOString(),
-        },
-      };
-
-    if (preapprovalPlanId) {
-      preapprovalBody.preapproval_plan_id = preapprovalPlanId;
-    }
-
-    if (backUrl) {
-      preapprovalBody.back_url = backUrl;
-    }
-
-    let result;
-    try {
-      result = await preApproval.create({
-        body: preapprovalBody,
-        requestOptions: getMercadoPagoRequestOptions(process.env.MERCADOPAGO_ACCESS_TOKEN),
-      } as any);
-    } catch (error: any) {
-      if (!isPreapprovalPlanVisibilityError(error)) {
-        throw error;
-      }
-
-      console.warn("[MercadoPago][Subscriptions] preapproval plan visibility error. Retrying without plan association.", {
-        preapprovalPlanId,
-        requestId: extractMercadoPagoRequestId(error),
-      });
-
-      const fallbackBody = { ...preapprovalBody };
-      delete fallbackBody.preapproval_plan_id;
-
-      result = await preApproval.create({
-        body: fallbackBody,
-        requestOptions: getMercadoPagoRequestOptions(process.env.MERCADOPAGO_ACCESS_TOKEN),
-      } as any);
-    }
+    const result = await preApproval.create({
+      body,
+    } as any);
 
     console.info("[MercadoPago][Subscriptions] preapproval created", {
       preapprovalId: (result as any).id,
-      preapprovalPlanId,
       status: (result as any).status,
     });
 
     return {
       id: (result as any).id,
-      preapprovalPlanId,
       status: (result as any).status,
       nextBillingDate: (result as any).next_billing_date,
+      nextPaymentDate: (result as any).next_payment_date,
     };
   } catch (error: any) {
     const requestId = extractMercadoPagoRequestId(error);
@@ -423,7 +370,6 @@ export async function createPreapproval(
       message: error?.message,
       status: error?.status,
       requestId,
-      preapprovalPlanId,
       cause: error?.cause,
     });
     const message = error?.message || "Falha ao criar assinatura recorrente";
@@ -436,6 +382,52 @@ export async function createPreapproval(
     }
 
     throw new Error(enrichedMessage);
+  }
+}
+
+export async function createPreapprovalPlan(
+  planPrice: number,
+  planName: string,
+  backUrl?: string,
+) {
+  if (!preApprovalPlan) {
+    throw new Error("Mercado Pago não está configurado. Configure MERCADOPAGO_ACCESS_TOKEN nas variáveis de ambiente.");
+  }
+
+  const body: any = {
+    reason: `Plano de Assinatura: ${planName}`,
+    status: "active",
+    auto_recurring: {
+      frequency: 1,
+      frequency_type: "months",
+      repetitions: 12,
+      billing_day_proportional: true,
+      transaction_amount: planPrice,
+      currency_id: "BRL",
+    },
+  };
+
+  if (backUrl) {
+    body.back_url = backUrl;
+  }
+
+  try {
+    const result = await preApprovalPlan.create({ body } as any);
+    const initPoint = (result as any).init_point;
+
+    if (!initPoint) {
+      throw new Error("Mercado Pago não retornou o link de autorização da assinatura");
+    }
+
+    return {
+      id: (result as any).id,
+      initPoint,
+      status: (result as any).status,
+    };
+  } catch (error: any) {
+    const requestId = extractMercadoPagoRequestId(error);
+    const message = error?.message || "Falha ao criar plano recorrente";
+    throw new Error(requestId ? `${message} (request_id: ${requestId})` : message);
   }
 }
 

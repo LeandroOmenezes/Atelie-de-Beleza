@@ -145,6 +145,10 @@ export function SubscriptionPlansPage() {
     navigate("/profile");
   };
 
+  const handleExitPlans = () => {
+    navigate("/");
+  };
+
   if (pageIsLoading || isLoading) {
     return (
       <div className="flex justify-center items-center min-h-screen">
@@ -161,12 +165,35 @@ export function SubscriptionPlansPage() {
   }, plans[0]?.id);
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-gradient-to-b from-gray-50 to-white p-4 md:p-8 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-      <div className="max-w-6xl mx-auto">
+    <div className="relative min-h-screen overflow-x-hidden bg-[radial-gradient(circle_at_top,_rgba(244,208,220,0.7),_transparent_30%),radial-gradient(circle_at_bottom_right,_rgba(196,164,130,0.18),_transparent_25%),linear-gradient(135deg,#fff9f7_0%,#f9f2ef_30%,#f5efe8_100%)] p-4 md:p-8 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -left-16 top-12 h-72 w-72 rounded-full bg-rose-200/40 blur-3xl" />
+        <div className="absolute right-0 top-1/4 h-80 w-80 rounded-full bg-amber-100/60 blur-3xl" />
+        <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-stone-200/50 blur-3xl" />
+      </div>
+
+      <div className="relative z-10 mx-auto max-w-6xl">
         {/* Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">Nossos Planos</h1>
-          <p className="text-xl text-gray-600">
+        <div className="mb-6 flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleExitPlans}
+            className="border-slate-200 bg-white/70 text-slate-600 shadow-sm hover:bg-slate-50 hover:text-slate-900"
+          >
+            Voltar
+          </Button>
+        </div>
+
+        <div className="mb-12 text-center">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white/75 px-4 py-2 text-sm font-semibold tracking-[0.12em] text-rose-700 shadow-sm backdrop-blur-sm uppercase">
+            <Sparkles className="h-4 w-4 text-amber-500" />
+            Assinatura premium
+          </div>
+          <h1 className="mb-4 bg-gradient-to-r from-stone-800 via-rose-700 to-amber-600 bg-clip-text text-4xl font-black tracking-tight text-transparent md:text-5xl">
+            Nossos Planos
+          </h1>
+          <p className="mx-auto max-w-2xl text-xl text-gray-700">
             Escolha um plano e desfrute de acesso aos nossos serviços inclusos
           </p>
         </div>
@@ -200,28 +227,33 @@ export function SubscriptionPlansPage() {
             return (
             <Card
               key={plan.id}
-              className={`flex h-full flex-col border transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl ${
+              className={`relative flex h-full flex-col overflow-hidden border transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl ${
                 isRecommended
-                  ? "border-amber-300 bg-gradient-to-b from-amber-50 to-white"
-                  : "border-slate-200 bg-white"
+                  ? "border-rose-300 bg-[linear-gradient(135deg,rgba(255,255,255,0.98)_0%,rgba(255,242,246,0.96)_35%,rgba(255,252,250,0.98)_100%)] shadow-[0_24px_60px_rgba(251,113,133,0.18)] ring-2 ring-rose-100/90"
+                  : "border-white/70 bg-[linear-gradient(135deg,rgba(255,255,255,0.96)_0%,rgba(250,247,245,0.94)_40%,rgba(255,255,255,0.96)_100%)] shadow-[0_18px_35px_rgba(15,23,42,0.08)] backdrop-blur-sm"
               }`}
             >
-              <div className="flex flex-1 flex-col p-6">
-                <div className="mb-4 flex min-h-[24px] items-center gap-2">
+              <div className={`pointer-events-none absolute inset-0 ${isRecommended ? "bg-[radial-gradient(circle_at_top_left,_rgba(251,113,133,0.12),_transparent_30%),radial-gradient(circle_at_bottom_right,_rgba(251,191,36,0.08),_transparent_30%)]" : "bg-[radial-gradient(circle_at_top_left,_rgba(234,179,8,0.06),_transparent_25%),radial-gradient(circle_at_bottom_right,_rgba(244,114,182,0.06),_transparent_28%)]"}`} />
+              <div className="relative z-10 flex flex-1 flex-col p-6">
+                <div className="mb-4 flex min-h-[24px] items-center gap-2 flex-wrap">
                   {isRecommended ? (
-                    <Badge className="border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-100">Mais escolhido</Badge>
+                    <Badge className="border-rose-300 bg-gradient-to-r from-rose-100 to-pink-100 text-rose-700 shadow-sm shadow-rose-100 hover:from-rose-100 hover:to-pink-100">Mais escolhido</Badge>
                   ) : null}
                   {isCurrentPlan ? (
                     <Badge className="border-emerald-300 bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Sua assinatura atual</Badge>
                   ) : null}
                 </div>
 
-                <h3 className="mb-2 text-2xl font-bold text-slate-900">{plan.name}</h3>
-                <p className="mb-4 flex-1 text-sm text-slate-600">{plan.description}</p>
+                <h3 className="mb-2 text-2xl font-black tracking-tight text-slate-900">{plan.name}</h3>
+                <p className="mb-4 flex-1 text-sm leading-6 text-slate-600">{plan.description}</p>
 
                 {/* Price */}
-                <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-4xl font-bold text-slate-900">
+                <div className={`mb-6 rounded-2xl border p-4 shadow-inner ${
+                  isRecommended
+                    ? "border-rose-200 bg-gradient-to-br from-rose-100 via-white to-rose-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.8),0_10px_25px_rgba(251,113,133,0.12)]"
+                    : "border-slate-100 bg-gradient-to-br from-slate-50 to-white shadow-slate-100/80"
+                }`}>
+                  <p className="text-4xl font-black tracking-tight text-slate-900">
                     R$ {plan.price.toFixed(2).replace('.', ',')}
                   </p>
                   <p className="text-sm text-slate-600">por mês</p>
@@ -248,7 +280,7 @@ export function SubscriptionPlansPage() {
                   ) : null;
                 })()}
 
-                <div className="mb-5 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600">
+                <div className="mb-5 rounded-xl border border-rose-100 bg-rose-50/70 p-3 text-xs font-medium text-slate-700">
                   Cancelamento quando desejar, sem multa ou taxa adicional.
                 </div>
 
@@ -256,7 +288,7 @@ export function SubscriptionPlansPage() {
                 <Button
                   onClick={() => handleSubscribe(plan)}
                   disabled={isCurrentPlan}
-                  className={`w-full ${isRecommended ? "bg-amber-500 text-black hover:bg-amber-400" : ""}`}
+                  className={`w-full rounded-full font-semibold transition-all ${isRecommended ? "bg-gradient-to-r from-rose-500 via-pink-500 to-rose-500 text-white shadow-lg shadow-rose-200 hover:brightness-105" : "bg-slate-900 text-white hover:bg-slate-800"}`}
                 >
                   {isCurrentPlan
                     ? "Assinatura ativa"

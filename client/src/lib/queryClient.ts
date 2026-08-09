@@ -25,12 +25,22 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(url, {
-    method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
+  let res: Response;
+
+  try {
+    res = await fetch(url, {
+      method,
+      headers: data ? { "Content-Type": "application/json" } : {},
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+    });
+  } catch (error: any) {
+    const message = String(error?.message || "").toLowerCase();
+    if (message.includes("failed to fetch") || message.includes("networkerror")) {
+      throw new Error("Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.");
+    }
+    throw new Error("Não foi possível realizar a comunicação com o servidor.");
+  }
 
   await throwIfResNotOk(res);
   return res;
@@ -42,9 +52,19 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey[0] as string, {
-      credentials: "include",
-    });
+    let res: Response;
+
+    try {
+      res = await fetch(queryKey[0] as string, {
+        credentials: "include",
+      });
+    } catch (error: any) {
+      const message = String(error?.message || "").toLowerCase();
+      if (message.includes("failed to fetch") || message.includes("networkerror")) {
+        throw new Error("Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.");
+      }
+      throw new Error("Não foi possível carregar os dados do servidor.");
+    }
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;

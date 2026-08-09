@@ -285,6 +285,7 @@ export async function createAppointmentPayment(
         transaction_amount: amount,
         token: token,
         description: `Agendamento #${appointmentId}: ${description}`,
+        external_reference: `appointment:${appointmentId}`,
         items: [
           {
             id: String(appointmentId),

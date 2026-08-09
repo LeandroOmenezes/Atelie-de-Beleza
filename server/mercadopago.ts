@@ -415,6 +415,7 @@ export async function createPreapprovalPlan(
   planPrice: number,
   planName: string,
   backUrl?: string,
+  idempotencyKey?: string,
 ) {
   if (!preApprovalPlan) {
     throw new Error("Mercado Pago não está configurado. Configure MERCADOPAGO_ACCESS_TOKEN nas variáveis de ambiente.");
@@ -438,7 +439,10 @@ export async function createPreapprovalPlan(
   }
 
   try {
-    const result = await preApprovalPlan.create({ body } as any);
+    const result = await preApprovalPlan.create({
+      body,
+      requestOptions: idempotencyKey ? { idempotencyKey } : undefined,
+    } as any);
     const initPoint = (result as any).init_point;
 
     if (!initPoint) {

@@ -2603,6 +2603,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         Number(plan.price),
         plan.name,
         returnUrl,
+        `subscription-plan:${userId}:${Number(planId)}`,
       );
 
       console.info("[MercadoPago][Subscriptions] redirect plan created", {

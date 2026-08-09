@@ -26,6 +26,7 @@ export function SubscriptionCheckoutForm({
   onSuccess: _onSuccess,
 }: SubscriptionCheckoutFormProps) {
   const [isLoading, setIsLoading] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [isCardFormReady, setIsCardFormReady] = useState(false);
   const [containerId, setContainerId] = useState(createContainerId);
   const cardFormRef = useRef<any>(null);
@@ -157,6 +158,11 @@ export function SubscriptionCheckoutForm({
   };
 
   const handleSubscribe = async () => {
+    if (isSubmittingRef.current) {
+      return;
+    }
+
+    isSubmittingRef.current = true;
     setIsLoading(true);
     try {
       const response = await fetch("/api/subscriptions/checkout", {
@@ -189,6 +195,7 @@ export function SubscriptionCheckoutForm({
       });
     } finally {
       setIsLoading(false);
+      isSubmittingRef.current = false;
     }
   };
 

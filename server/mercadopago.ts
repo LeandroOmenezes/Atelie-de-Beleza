@@ -110,6 +110,10 @@ export function translateMercadoPagoError(error: any): string {
     return "O Mercado Pago não reconheceu o cartão neste ambiente. Confira se as credenciais e o ambiente de teste estão corretos.";
   }
 
+  if (normalized.includes("cannot pay an amount lower than") || normalized.includes("amount lower than r$ 0.50")) {
+    return "O valor da assinatura precisa ser de pelo menos R$ 0,50.";
+  }
+
   return message || "Não foi possível concluir a operação no Mercado Pago.";
 }
 

@@ -2584,6 +2584,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Plano não encontrado" });
       }
 
+      if (Number(plan.price) < 0.5) {
+        return res.status(400).json({ message: "O valor da assinatura precisa ser de pelo menos R$ 0,50." });
+      }
+
       const configuredBaseUrl = (process.env.APP_BASE_URL || "").trim();
       let baseReturnUrl: string;
       try {

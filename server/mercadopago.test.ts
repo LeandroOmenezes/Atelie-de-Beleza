@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildPreapprovalBody, getMercadoPagoRequestOptions, getMercadoPagoSubscriptionCallbackState, getValidMercadoPagoBackUrl, isCardTokenServiceError, isPreapprovalPlanVisibilityError, translateMercadoPagoError } from "./mercadopago.ts";
+import { buildAppointmentPaymentBody, buildPreapprovalBody, getMercadoPagoPaymentIdFromWebhookPayload, getMercadoPagoRequestOptions, getMercadoPagoSubscriptionCallbackState, getValidMercadoPagoBackUrl, isCardTokenServiceError, isPreapprovalPlanVisibilityError, translateMercadoPagoError } from "./mercadopago.ts";
 import { shouldUseMercadoPagoSecureFields } from "../client/src/lib/mercadopago.ts";
 
 test("detecta erro de visibilidade do plano de assinatura do Mercado Pago", () => {
@@ -107,6 +107,66 @@ test("traduz erro de token inválido do Mercado Pago com mensagem clara", () => 
   assert.match(translated, /credenciais do Mercado Pago/i);
   assert.match(translated, /MERCADOPAGO_ACCESS_TOKEN/i);
 });
+
+test("extrai o id do pagamento de um webhook do tipo order.processed", () => {
+  const payload = {
+    action: "order.processed",
+    type: "order",
+    data: {
+      id: "123456",
+      status: "processed",
+      external_reference: "ext_ref_1234",
+      transactions: {
+        payments: [
+          {
+            id: "PAY01K7S9596QBWZRTY02NF",
+            status: "processed",
+            status_detail: "accredited",
+          },
+        ],
+      },
+    },
+  };
+
+  assert.equal(getMercadoPagoPaymentIdFromWebhookPayload(payload.data, payload.type), "PAY01K7S9596QBWZRTY02NF");
+});
+
+test("inclui payer.address e identificadores no payload do pagamento para reduzir risco de fraude", () => {
+  const body = buildAppointmentPaymentBody({
+    amount: 170,
+    token: "card_token_123",
+    description: "Corte e escova",
+    email: "cliente@teste.com",
+    appointmentId: 42,
+    notificationUrl: "https://app.example.com/api/webhooks/mercadopago",
+    payerName: "Maria da Silva",
+    payerPhone: "11999990000",
+    payerIdentification: "12345678909",
+    payerAddress: {
+      streetName: "Rua das Flores",
+      streetNumber: "123",
+      zipCode: "01310-100",
+      neighborhood: "Centro",
+      city: "São Paulo",
+      federalUnit: "SP",
+      country: "BR",
+    },
+  });
+
+  assert.equal(body.payer.name, "Maria da Silva");
+  assert.equal(body.payer.identification.type, "CPF");
+  assert.equal(body.payer.identification.number, "12345678909");
+  assert.deepEqual(body.payer.address, {
+    street_name: "Rua das Flores",
+    street_number: "123",
+    zip_code: "01310100",
+    neighborhood: "Centro",
+    city: "São Paulo",
+    federal_unit: "SP",
+    country: "BR",
+  });
+});
+
 test("usa Secure Fields do Mercado Pago por padrão e só cai em fallback quando explicitamente solicitado", () => {
   assert.equal(shouldUseMercadoPagoSecureFields({}), true);
   assert.equal(shouldUseMercadoPagoSecureFields({ preferSdk: true }), true);

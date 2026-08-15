@@ -2287,7 +2287,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { id } = req.params;
-      const { token, cardNumber, cardholderName, cardExpirationDate, securityCode } = req.body;
+      const { token, cardNumber, cardholderName, cardExpirationDate, securityCode, payerIdentification, payerAddress } = req.body;
 
       let paymentToken = typeof token === "string" ? token : "";
       const hasCardDetails = Boolean(cardNumber || cardholderName || cardExpirationDate || securityCode);
@@ -2321,6 +2321,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Este agendamento já foi pago" });
       }
 
+      const payerInfo = {
+        name: typeof cardholderName === "string" && cardholderName.trim() ? cardholderName.trim() : appointment.name,
+        phone: typeof appointment.phone === "string" && appointment.phone.trim() ? appointment.phone.trim() : undefined,
+        identification: typeof payerIdentification === "string" && payerIdentification.trim() ? payerIdentification.trim() : undefined,
+        address: payerAddress && typeof payerAddress === "object" ? {
+          streetName: typeof payerAddress.streetName === "string" ? payerAddress.streetName : undefined,
+          streetNumber: typeof payerAddress.streetNumber === "string" ? payerAddress.streetNumber : undefined,
+          zipCode: typeof payerAddress.zipCode === "string" ? payerAddress.zipCode : undefined,
+          neighborhood: typeof payerAddress.neighborhood === "string" ? payerAddress.neighborhood : undefined,
+          city: typeof payerAddress.city === "string" ? payerAddress.city : undefined,
+          federalUnit: typeof payerAddress.federalUnit === "string" ? payerAddress.federalUnit : undefined,
+          country: typeof payerAddress.country === "string" ? payerAddress.country : undefined,
+        } : undefined,
+      };
+
       // Create payment on Mercado Pago
       const paymentResult = await mercadoPago.createAppointmentPayment(
         appointment.paymentAmount!,
@@ -2329,6 +2344,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         appointment.email,
         appointmentId,
         mercadoPago.getMercadoPagoWebhookUrl(),
+        payerInfo,
       );
 
       // Update appointment payment status
@@ -2816,31 +2832,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { action, data, type } = req.body;
 
-      // Payment webhook
-      if (type === "payment") {
-        const paymentId = data?.id;
-        if (paymentId == null) {
-          return res.json({ received: true });
+      const resolveAppointmentFromWebhook = async (rawPaymentId?: string | number, rawExternalReference?: string) => {
+        const paymentId = rawPaymentId == null ? undefined : String(rawPaymentId);
+        const allAppointments = await storage.getAppointments();
+
+        if (paymentId) {
+          const byPaymentId = allAppointments.find(a => a.mpPaymentId === paymentId);
+          if (byPaymentId) return byPaymentId;
         }
 
+        if (typeof rawExternalReference === "string" && rawExternalReference.trim()) {
+          const match = rawExternalReference.match(/appointment:(\d+)/i);
+          if (match?.[1]) {
+            const appointmentId = Number(match[1]);
+            return allAppointments.find(a => a.id === appointmentId);
+          }
+        }
+
+        return undefined;
+      };
+
+      const processPaymentWebhook = async (paymentId: string | number, externalReference?: string) => {
         try {
-          const paymentData = await mercadoPago.getPayment(paymentId);
+          const paymentData = await mercadoPago.getPayment(Number(paymentId));
+          const appointment = await resolveAppointmentFromWebhook(paymentId, externalReference);
 
-          const allAppointments = await storage.getAppointments();
-          const appointment = allAppointments.find(a => a.mpPaymentId === paymentId.toString());
+          if (!appointment) {
+            return;
+          }
 
-          if (appointment) {
-            if (paymentData.status === "approved") {
-              await storage.updateAppointmentPayment(appointment.id, {
-                paymentStatus: "paid",
-              });
-              await storage.updateAppointmentStatus(appointment.id, "confirmed");
-              await syncSaleForAppointment(appointment.id);
-            } else if (paymentData.status === "rejected" || paymentData.status === "cancelled") {
-              await storage.updateAppointmentPayment(appointment.id, {
-                paymentStatus: "failed",
-              });
-            }
+          if (paymentData.status === "approved" || paymentData.status === "processed" || paymentData.status === "authorized") {
+            await storage.updateAppointmentPayment(appointment.id, {
+              paymentStatus: "paid",
+              mpPaymentId: String(paymentId),
+            });
+            await storage.updateAppointmentStatus(appointment.id, "confirmed");
+            await syncSaleForAppointment(appointment.id);
+          } else if (paymentData.status === "rejected" || paymentData.status === "cancelled" || paymentData.status === "refunded") {
+            await storage.updateAppointmentPayment(appointment.id, {
+              paymentStatus: "failed",
+              mpPaymentId: String(paymentId),
+            });
           }
         } catch (paymentError) {
           console.warn("Mercado Pago payment webhook ignored because the payment id is not known or was not found:", {
@@ -2848,6 +2880,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
             error: paymentError,
           });
         }
+      };
+
+      // Payment webhook
+      if (type === "payment") {
+        const paymentId = data?.id;
+        if (paymentId == null) {
+          return res.json({ received: true });
+        }
+
+        await processPaymentWebhook(paymentId, data?.external_reference);
+      }
+
+      // Order webhook from Mercado Pago checkout/order flow
+      if (type === "order" && (action === "order.processed" || action === "order.authorized" || action === "order.cancelled")) {
+        const paymentId = mercadoPago.getMercadoPagoPaymentIdFromWebhookPayload(data, type);
+        const externalReference = data?.external_reference;
+
+        if (!paymentId) {
+          return res.json({ received: true });
+        }
+
+        await processPaymentWebhook(paymentId, externalReference);
       }
 
       // Subscription webhook

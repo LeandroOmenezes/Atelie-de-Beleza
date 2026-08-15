@@ -307,6 +307,44 @@ export function getMercadoPagoSubscriptionCallbackState(rawUrl?: string) {
   };
 }
 
+export function getMercadoPagoPaymentIdFromWebhookPayload(data: any, type?: string): string | undefined {
+  if (!data || typeof data !== "object") {
+    return undefined;
+  }
+
+  const maybeFromOrderPayment = Array.isArray(data?.transactions?.payments)
+    ? data.transactions.payments.find((payment: any) => typeof payment?.id === "string" && payment.id.trim())
+    : undefined;
+
+  if (maybeFromOrderPayment) {
+    return String(maybeFromOrderPayment.id);
+  }
+
+  if (typeof data?.id === "string" && data.id.trim()) {
+    return String(data.id);
+  }
+
+  if (typeof data?.payment_id === "string" && data.payment_id.trim()) {
+    return String(data.payment_id);
+  }
+
+  if (type === "payment" && typeof data?.id === "number") {
+    return String(data.id);
+  }
+
+  return undefined;
+}
+
+export interface MercadoPagoAddressInput {
+  streetName?: string;
+  streetNumber?: string;
+  zipCode?: string;
+  neighborhood?: string;
+  city?: string;
+  federalUnit?: string;
+  country?: string;
+}
+
 export interface TokenizeCardData {
   cardNumber: string;
   cardholderName: string;
@@ -314,6 +352,93 @@ export interface TokenizeCardData {
   securityCode: string;
   identificationType?: string;
   identificationNumber?: string;
+}
+
+export function buildAppointmentPaymentBody({
+  amount,
+  token,
+  description,
+  email,
+  appointmentId,
+  notificationUrl,
+  payerName,
+  payerPhone,
+  payerIdentification,
+  payerAddress,
+}: {
+  amount: number;
+  token: string;
+  description: string;
+  email: string;
+  appointmentId: number;
+  notificationUrl?: string;
+  payerName?: string;
+  payerPhone?: string;
+  payerIdentification?: string;
+  payerAddress?: MercadoPagoAddressInput;
+}) {
+  const body: any = {
+    transaction_amount: amount,
+    token,
+    description: `Agendamento #${appointmentId}: ${description}`,
+    external_reference: `appointment:${appointmentId}`,
+    notification_url: notificationUrl || getMercadoPagoWebhookUrl(),
+    items: [
+      {
+        id: String(appointmentId),
+        title: description,
+        description: `Serviço de beleza referente ao agendamento #${appointmentId}`,
+        category_id: "services",
+        quantity: 1,
+        unit_price: amount,
+      },
+    ],
+    installments: 1,
+    payment_method_id: "credit_card",
+    payer: {
+      email,
+    },
+    metadata: {
+      appointmentId,
+    },
+  };
+
+  if (payerName || payerPhone || payerIdentification || payerAddress) {
+    body.payer = { ...body.payer };
+
+    if (payerName) {
+      body.payer.name = payerName;
+    }
+
+    if (payerPhone) {
+      body.payer.phone = {
+        area_code: "55",
+        number: payerPhone.replace(/\D+/g, ""),
+      };
+    }
+
+    if (payerIdentification) {
+      body.payer.identification = {
+        type: "CPF",
+        number: payerIdentification.replace(/\D+/g, ""),
+      };
+    }
+
+    if (payerAddress) {
+      const zipCode = (payerAddress.zipCode || "").replace(/\D+/g, "");
+      body.payer.address = {
+        street_name: payerAddress.streetName || "",
+        street_number: payerAddress.streetNumber || "",
+        zip_code: zipCode,
+        neighborhood: payerAddress.neighborhood || "",
+        city: payerAddress.city || "",
+        federal_unit: payerAddress.federalUnit || "",
+        country: (payerAddress.country || "BR").toUpperCase(),
+      };
+    }
+  }
+
+  return body;
 }
 
 export function getMercadoPagoRequestOptions(accessToken: string | undefined) {
@@ -482,6 +607,12 @@ export async function createAppointmentPayment(
   email: string,
   appointmentId: number,
   notificationUrl?: string,
+  payerInfo?: {
+    name?: string;
+    phone?: string;
+    identification?: string;
+    address?: MercadoPagoAddressInput;
+  },
 ) {
   if (!payment) {
     throw new Error("Mercado Pago não está configurado. Configure MERCADOPAGO_ACCESS_TOKEN nas variáveis de ambiente.");
@@ -491,32 +622,18 @@ export async function createAppointmentPayment(
 
   try {
     const result = await payment.create({
-      body: {
-        transaction_amount: amount,
-        token: token,
-        description: `Agendamento #${appointmentId}: ${description}`,
-        external_reference: `appointment:${appointmentId}`,
-        notification_url: resolvedNotificationUrl,
-        items: [
-          {
-            id: String(appointmentId),
-            title: description,
-            description: `Serviço de beleza referente ao agendamento #${appointmentId}`,
-            category_id: "services",
-            quantity: 1,
-            unit_price: amount,
-          },
-        ],
-        installments: 1,
-        payment_method_id: "credit_card",
-        payer: {
-          email: email,
-        },
-        // Metadata para rastrear o pagamento
-        metadata: {
-          appointmentId: appointmentId,
-        },
-      },
+      body: buildAppointmentPaymentBody({
+        amount,
+        token,
+        description,
+        email,
+        appointmentId,
+        notificationUrl: resolvedNotificationUrl,
+        payerName: payerInfo?.name,
+        payerPhone: payerInfo?.phone,
+        payerIdentification: payerInfo?.identification,
+        payerAddress: payerInfo?.address,
+      }),
     });
 
     return {
@@ -658,6 +775,17 @@ export async function createPreapprovalPlan(
   const body: any = {
     reason: `Plano de Assinatura: ${planName}`,
     status: "active",
+    description: `Plano de assinatura: ${planName}`,
+    items: [
+      {
+        id: `plan-${planName}`,
+        title: `Plano de Assinatura: ${planName}`,
+        description: `Acesso ao plano de assinatura ${planName} com cobrança recorrente mensal.`,
+        category_id: "services",
+        quantity: 1,
+        unit_price: planPrice,
+      },
+    ],
     auto_recurring: {
       frequency: 1,
       frequency_type: "months",

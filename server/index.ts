@@ -8,6 +8,24 @@ app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: false, limit: "20mb" }));
 
 app.use((req, res, next) => {
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; " +
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://sdk.mercadopago.com https://*.mercadopago.com https://*.mlstatic.com; " +
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.mercadopago.com; " +
+      "img-src 'self' data: blob: https://*.mercadopago.com https://*.mlstatic.com https://images.unsplash.com; " +
+      "connect-src 'self' https://api.mercadopago.com https://sdk.mercadopago.com https://*.mercadopago.com https://*.mlstatic.com wss: ws:; " +
+      "font-src 'self' data: https://fonts.gstatic.com; " +
+      "frame-src 'self' https://www.mercadopago.com https://*.mercadopago.com; " +
+      "object-src 'none'; " +
+      "base-uri 'self'; " +
+      "form-action 'self' https://*.mercadopago.com; " +
+      "upgrade-insecure-requests"
+  );
+  next();
+});
+
+app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
   let capturedJsonResponse: Record<string, any> | undefined = undefined;

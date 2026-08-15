@@ -105,9 +105,27 @@ export function SubscriptionPlansPage() {
   useEffect(() => {
     if (isLoading || !user) return;
 
-    const params = new URLSearchParams(window.location.search);
+    const url = new URL(window.location.href);
+    const pathname = url.pathname.toLowerCase();
+    const params = url.searchParams;
     const preapprovalId = params.get("preapproval_id") || params.get("preapprovalId");
-    const planId = params.get("subscription_plan_id");
+    const planId = params.get("subscription_plan_id") || params.get("plan_id") || params.get("planId");
+    const paymentStatus = [
+      params.get("status"),
+      params.get("collection_status"),
+      params.get("payment_status"),
+    ].find((value): value is string => typeof value === "string" && value.trim().length > 0);
+
+    if (pathname.includes("/congrats/rejected") || paymentStatus === "rejected") {
+      window.history.replaceState({}, document.title, "/planos");
+      toast({
+        title: "Pagamento não autorizado",
+        description: "Sua transação foi recusada pela análise de risco do Mercado Pago. Isso geralmente acontece por cartão bloqueado, dados insuficientes ou risco de fraude. Tente outro cartão ou outro meio de pagamento.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!preapprovalId || !planId) return;
 
     const completeSubscription = async () => {
@@ -119,12 +137,23 @@ export function SubscriptionPlansPage() {
           body: JSON.stringify({ preapprovalId, planId }),
         });
 
+        const data = await response.json().catch(() => ({}));
+
+        // Detectar rejeição por FRAUDE
+        if (response.status === 402 && data.isFraudRejection) {
+          window.history.replaceState({}, document.title, "/planos");
+          toast({
+            title: "⚠️ Pagamento rejeitado por risco de fraude",
+            description: data.message || "Sua transação foi rejeitada pela análise de risco. Tente outro cartão ou aguarde alguns minutos.",
+            variant: "destructive",
+          });
+          return;
+        }
+
         if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
           throw new Error(data.message || "Não foi possível confirmar a assinatura");
         }
 
-        const data = await response.json();
         setUserSubscription(data.subscription || null);
         window.history.replaceState({}, document.title, "/planos");
         toast({

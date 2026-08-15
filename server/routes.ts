@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
+import { createHmac } from "crypto";
 import { storage } from "./storage";
 import { setupAuth, hashPassword, generatePasswordResetToken, verifyPasswordResetToken, removePasswordResetToken } from "./auth";
 import * as mercadoPago from "./mercadopago";
@@ -2588,26 +2589,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "O valor da assinatura precisa ser de pelo menos R$ 0,50." });
       }
 
-      const configuredBaseUrl = (process.env.APP_BASE_URL || "").trim();
+      const configuredBaseUrl = (process.env.APP_BASE_URL || process.env.APP_BASE_URL_LOCAL || "").trim();
       let baseReturnUrl: string;
       try {
         const parsedBaseUrl = new URL(configuredBaseUrl);
-        if (parsedBaseUrl.protocol !== "https:") {
-          throw new Error("APP_BASE_URL precisa usar HTTPS");
+        if (parsedBaseUrl.protocol !== "https:" && parsedBaseUrl.hostname !== "localhost") {
+          throw new Error("URL de retorno do Mercado Pago precisa usar HTTPS para o domínio público ou HTTP em localhost");
         }
         baseReturnUrl = parsedBaseUrl.toString();
       } catch {
         return res.status(500).json({
-          message: "Configure APP_BASE_URL com a URL HTTPS pública do seu aplicativo antes de iniciar a assinatura.",
+          message: "Configure APP_BASE_URL com uma URL HTTPS pública válida antes de iniciar a assinatura. Em desenvolvimento local, use localhost ou a URL pública do app.",
         });
       }
 
       const returnUrl = `${baseReturnUrl.replace(/\/$/, "")}/planos?subscription_plan_id=${encodeURIComponent(String(planId))}`;
+      const webhookUrl = `${baseReturnUrl.replace(/\/$/, "")}/api/webhooks/mercadopago`;
       const planResult = await mercadoPago.createPreapprovalPlan(
         Number(plan.price),
         plan.name,
         returnUrl,
         `subscription-plan:${userId}:${Number(planId)}`,
+        webhookUrl,
       );
 
       console.info("[MercadoPago][Subscriptions] redirect plan created", {
@@ -2650,15 +2653,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       let preapprovalStatus = "pending";
+      let preapprovalStatusDetail: string | undefined;
+      let isFraudRejected = false;
       let nextBillingDate: Date | undefined;
+      
       try {
         const preapproval = await mercadoPago.getPreapproval(preapprovalId);
         preapprovalStatus = preapproval.status;
+        preapprovalStatusDetail = preapproval.statusDetail;
+        isFraudRejected = preapproval.isFraudRejection || false;
         nextBillingDate = preapproval.nextBillingDate ? new Date(preapproval.nextBillingDate) : undefined;
+        
+        // Log detalhado para diagnóstico
+        if (isFraudRejected) {
+          console.warn("[MercadoPago][Fraud] Rejeição por risco de fraude detectada", {
+            preapprovalId,
+            statusDetail: preapprovalStatusDetail,
+            status: preapprovalStatus,
+            userId,
+          });
+        }
       } catch (lookupError: any) {
         console.warn("Não foi possível consultar a assinatura no retorno; aguardando Webhook do Mercado Pago:", {
           preapprovalId,
           message: lookupError?.message,
+        });
+      }
+
+      // Se foi rejeitado por fraude, retornar erro específico com orientações
+      if (isFraudRejected || (preapprovalStatus === "rejected" && mercadoPago.isFraudRejectionError({ statusDetail: preapprovalStatusDetail }, preapprovalStatusDetail))) {
+        const fraudMessage = mercadoPago.getFraudRejectionGuidance(preapprovalStatusDetail);
+        return res.status(402).json({
+          message: fraudMessage,
+          isFraudRejection: true,
+          statusDetail: preapprovalStatusDetail,
         });
       }
 
@@ -2738,9 +2766,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Validate Mercado Pago webhook signature
+  function validateMercadoPagoSignature(body: any, signature: string): boolean {
+    const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
+    if (!secret) {
+      console.warn("MERCADOPAGO_WEBHOOK_SECRET not configured, skipping signature validation");
+      return true; // Allow if not configured (development)
+    }
+
+    try {
+      const bodyString = JSON.stringify(body);
+      const calculatedSignature = createHmac("sha256", secret)
+        .update(bodyString)
+        .digest("hex");
+
+      const isValid = calculatedSignature === signature;
+      if (!isValid) {
+        console.warn("Invalid webhook signature", {
+          expected: calculatedSignature,
+          received: signature,
+        });
+      }
+      return isValid;
+    } catch (error) {
+      console.error("Error validating webhook signature:", error);
+      return false;
+    }
+  }
+
   // Webhook from Mercado Pago
   app.post("/api/webhooks/mercadopago", async (req: Request, res: Response) => {
     try {
+      // Validate signature
+      const signature = req.headers["x-signature"] as string;
+      if (!validateMercadoPagoSignature(req.body, signature)) {
+        console.warn("Rejected webhook with invalid signature");
+        return res.status(401).json({ message: "Invalid signature" });
+      }
+
       const { action, data, type } = req.body;
 
       // Payment webhook

@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildPreapprovalBody, getMercadoPagoRequestOptions, isCardTokenServiceError, isPreapprovalPlanVisibilityError } from "./mercadopago";
+import { buildPreapprovalBody, getMercadoPagoRequestOptions, getMercadoPagoSubscriptionCallbackState, getValidMercadoPagoBackUrl, isCardTokenServiceError, isPreapprovalPlanVisibilityError, translateMercadoPagoError } from "./mercadopago.ts";
 
 test("detecta erro de visibilidade do plano de assinatura do Mercado Pago", () => {
   const error = {
@@ -65,4 +65,44 @@ test("monta corpo de assinatura recorrente sem template associado para evitar 40
   assert.equal(body.auto_recurring.frequency_type, "months");
   assert.equal(body.auto_recurring.transaction_amount, 170);
   assert.equal(body.back_url, "https://app.example.com/planos");
+});
+
+test("prioriza APP_BASE_URL pública em desenvolvimento para o callback da recorrência", () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousBaseUrl = process.env.APP_BASE_URL;
+  const previousLocalBaseUrl = process.env.APP_BASE_URL_LOCAL;
+
+  process.env.NODE_ENV = "development";
+  process.env.APP_BASE_URL = "https://prod.example.com";
+  process.env.APP_BASE_URL_LOCAL = "http://localhost:5000";
+
+  const result = getValidMercadoPagoBackUrl();
+
+  assert.equal(result, "https://prod.example.com/");
+
+  if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = previousNodeEnv;
+
+  if (previousBaseUrl === undefined) delete process.env.APP_BASE_URL;
+  else process.env.APP_BASE_URL = previousBaseUrl;
+
+  if (previousLocalBaseUrl === undefined) delete process.env.APP_BASE_URL_LOCAL;
+  else process.env.APP_BASE_URL_LOCAL = previousLocalBaseUrl;
+});
+
+test("detecta retorno rejeitado do Mercado Pago na assinatura recorrente", () => {
+  const url = "https://www.mercadopago.com.br/checkout/v1/subscription/redirect/example/congrats/rejected/?preference-id=123&router-request-id=abc";
+
+  const result = getMercadoPagoSubscriptionCallbackState(url);
+
+  assert.equal(result.status, "rejected");
+  assert.equal(result.preapprovalId, undefined);
+  assert.equal(result.planId, undefined);
+});
+
+test("traduz erro de token inválido do Mercado Pago com mensagem clara", () => {
+  const translated = translateMercadoPagoError({ message: "invalid access token" });
+
+  assert.match(translated, /credenciais do Mercado Pago/i);
+  assert.match(translated, /MERCADOPAGO_ACCESS_TOKEN/i);
 });

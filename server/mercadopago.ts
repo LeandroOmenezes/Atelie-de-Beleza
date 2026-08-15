@@ -23,6 +23,68 @@ function initializeMercadoPago() {
 
 initializeMercadoPago();
 
+/**
+ * Configuração de retry com backoff exponencial
+ * Recomendações do guia Mercado Pago para rejeições por fraude:
+ * - Não re-tentar imediatamente com os mesmos dados
+ * - Aguardar alguns minutos (backoff) antes de nova tentativa
+ * - Limitar número de tentativas para evitar suspeita adicional
+ */
+export interface RetryConfig {
+  maxAttempts: number;
+  initialDelayMs: number; // Delay inicial em ms
+  maxDelayMs: number; // Delay máximo em ms
+  backoffMultiplier: number; // Multiplicador exponencial
+}
+
+export const DEFAULT_FRAUD_RETRY_CONFIG: RetryConfig = {
+  maxAttempts: 3,
+  initialDelayMs: 5 * 60 * 1000, // 5 minutos
+  maxDelayMs: 2 * 60 * 60 * 1000, // 2 horas
+  backoffMultiplier: 6, // 5min -> 30min -> 2h
+};
+
+/**
+ * Calcula delay para próxima tentativa usando backoff exponencial
+ * @param attemptNumber - Número da tentativa (começando em 1)
+ * @param config - Configuração de retry
+ * @returns Delay em milissegundos
+ */
+export function calculateBackoffDelay(attemptNumber: number, config: RetryConfig): number {
+  const exponentialDelay = config.initialDelayMs * Math.pow(config.backoffMultiplier, attemptNumber - 1);
+  return Math.min(exponentialDelay, config.maxDelayMs);
+}
+
+/**
+ * Aguarda antes de tentar novamente (implementa backoff)
+ * @param delayMs - Tempo de espera em milissegundos
+ */
+export async function waitForRetry(delayMs: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, delayMs));
+}
+
+/**
+ * Determina se um erro é "retriável" (pode tentar novamente)
+ * Padrão: erros de fraude são retriáveis, mas o usuário precisa tentar com outro cartão/dados
+ */
+export function isRetriableError(error: any, statusDetail?: string): boolean {
+  const detail = statusDetail || error?.statusDetail || (error as any).status_detail || "";
+  const message = String(error?.message || error || "").toLowerCase();
+  
+  // Erros de fraude são retriáveis (mas usuário deve mudar dados/cartão)
+  if (isFraudRejectionError(error, statusDetail)) {
+    return true;
+  }
+  
+  // Erros de timeout/conexão são retriáveis
+  const retriablePatterns = [
+    /timeout|econnrefused|enotfound/i,
+    /temporarily unavailable|service unavailable/i,
+  ];
+  
+  return retriablePatterns.some(pattern => pattern.test(message));
+}
+
 function collectErrorMessages(error: any): string[] {
   const values: string[] = [];
   const queue = [error, error?.cause, error?.response, error?.response?.cause, error?.response?.data];
@@ -98,9 +160,71 @@ function extractMercadoPagoRequestId(error: any): string | undefined {
   return undefined;
 }
 
+/**
+ * Detecta se um erro é causado por risco de fraude (antifraude Mercado Pago)
+ * Padrões conhecidos:
+ * - cc_rejected_high_risk: Cartão rejeitado por alto risco
+ * - rejected_high_risk: Operação rejeitada por alto risco geral
+ * - cc_rejected_blacklist: Cartão está na blacklist
+ * - cc_rejected_insufficient_data: Dados insuficientes do comprador
+ */
+export function isFraudRejectionError(error: any, statusDetail?: string): boolean {
+  const detail = statusDetail || error?.statusDetail || (error as any).status_detail || "";
+  const message = String(error?.message || error || "").toLowerCase();
+  
+  const fraudPatterns = [
+    /cc_rejected_high_risk/i,
+    /rejected_high_risk/i,
+    /cc_rejected_blacklist/i,
+    /cc_rejected_insufficient_data/i,
+    /high.?risk/i,
+    /fraude|fraud/i,
+    /antifraude|anti.?fraud/i,
+  ];
+  
+  return fraudPatterns.some(pattern => 
+    pattern.test(detail) || pattern.test(message)
+  );
+}
+
+/**
+ * Retorna mensagem amigável sobre erro de fraude com orientações
+ */
+export function getFraudRejectionGuidance(statusDetail?: string): string {
+  if (!statusDetail) {
+    return "Sua operação foi rejeitada por análise de risco. Tente novamente com outro cartão ou meio de pagamento. Aguarde alguns minutos antes de tentar novamente.";
+  }
+
+  const detailLower = statusDetail.toLowerCase();
+  
+  if (detailLower.includes("high_risk")) {
+    return "Seu cartão foi rejeitado por apresentar alto risco de fraude. Experimente um cartão diferente, aumente o valor da transação, ou aguarde alguns minutos antes de tentar novamente.";
+  }
+  
+  if (detailLower.includes("blacklist")) {
+    return "Seu cartão não pode ser usado. Por favor, use um cartão diferente.";
+  }
+  
+  if (detailLower.includes("insufficient_data")) {
+    return "Dados insuficientes do comprador. Verifique se seu nome, email e dados de identificação estão corretos.";
+  }
+  
+  return "Sua operação foi rejeitada. Tente outro cartão ou meio de pagamento.";
+}
+
 export function translateMercadoPagoError(error: any): string {
   const message = String(error?.message || error || "").trim();
   const normalized = message.toLowerCase();
+  const statusDetail = (error as any)?.statusDetail || (error as any)?.status_detail;
+
+  // Verificar primeiro se é erro de fraude
+  if (isFraudRejectionError(error, statusDetail)) {
+    return getFraudRejectionGuidance(statusDetail);
+  }
+
+  if (normalized.includes("invalid access token") || normalized.includes("access token") && normalized.includes("invalid")) {
+    return "As credenciais do Mercado Pago estão inválidas ou não pertencem ao mesmo ambiente/aplicativo. Verifique MERCADOPAGO_ACCESS_TOKEN e MERCADOPAGO_PUBLIC_KEY no backend e confirme que ambos foram gerados na mesma conta/aplicação do Mercado Pago.";
+  }
 
   if (normalized.includes("unauthorized access to resource")) {
     return "O Mercado Pago não autorizou esta operação. Verifique se as credenciais da aplicação Vendedor no ambiente de produção estão corretas e pertencem à mesma aplicação que criou o plano.";
@@ -118,18 +242,60 @@ export function translateMercadoPagoError(error: any): string {
 }
 
 export function getValidMercadoPagoBackUrl(): string | undefined {
-  const raw = (process.env.APP_BASE_URL || "").trim();
-  if (!raw) return "https://www.mercadopago.com.br";
+  const candidates = [
+    process.env.APP_BASE_URL || "",
+    process.env.APP_BASE_URL_LOCAL || "",
+  ].filter(Boolean);
 
-  try {
-    const parsed = new URL(raw);
-    if (parsed.protocol !== "https:") {
-      return "https://www.mercadopago.com.br";
+  for (const raw of candidates) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol === "https:") {
+        return parsed.toString();
+      }
+
+      if (parsed.hostname === "localhost" && process.env.NODE_ENV !== "production") {
+        return parsed.toString();
+      }
+    } catch {
+      // ignore invalid candidate and keep checking
     }
-    return parsed.toString();
-  } catch {
-    return "https://www.mercadopago.com.br";
   }
+
+  return "https://www.mercadopago.com.br";
+}
+
+export function getMercadoPagoSubscriptionCallbackState(rawUrl?: string) {
+  const url = new URL(rawUrl || (typeof window !== "undefined" ? window.location.href : "https://example.com"));
+  const pathname = url.pathname.toLowerCase();
+  const params = url.searchParams;
+
+  const explicitStatus = [
+    params.get("status"),
+    params.get("collection_status"),
+    params.get("payment_status"),
+    params.get("subscription_status"),
+  ].find((value): value is string => typeof value === "string" && value.trim().length > 0);
+
+  const inferredStatus = pathname.includes("/congrats/rejected")
+    ? "rejected"
+    : pathname.includes("/congrats/approved")
+      ? "approved"
+      : pathname.includes("/congrats/cancelled")
+        ? "cancelled"
+        : undefined;
+
+  const status = (explicitStatus || inferredStatus || "unknown").toLowerCase();
+
+  return {
+    status,
+    preapprovalId: params.get("preapproval_id") || params.get("preapprovalId") || undefined,
+    planId: params.get("subscription_plan_id") || params.get("plan_id") || params.get("planId") || undefined,
+    rawUrl: url.toString(),
+  };
 }
 
 export interface TokenizeCardData {
@@ -154,6 +320,9 @@ export function buildPreapprovalBody({
   email,
   startDate,
   backUrl,
+  payerName,
+  payerPhone,
+  payerIdentification,
 }: {
   token: string;
   planPrice: number;
@@ -161,6 +330,9 @@ export function buildPreapprovalBody({
   email: string;
   startDate: Date;
   backUrl?: string;
+  payerName?: string;
+  payerPhone?: string;
+  payerIdentification?: string;
 }) {
   const today = new Date();
   const endDate = new Date(today);
@@ -181,6 +353,28 @@ export function buildPreapprovalBody({
       end_date: endDate.toISOString(),
     },
   };
+
+  // Adicionar dados do pagador para reduzir sinais de risco de fraude
+  // Conforme guia: "envie o máximo de dados do comprador"
+  if (payerName || payerPhone || payerIdentification) {
+    body.payer = {};
+    if (payerName) {
+      body.payer.name = payerName;
+    }
+    if (payerPhone) {
+      body.payer.phone = {
+        area_code: "55", // Brasil
+        number: payerPhone.replace(/\D+/g, ""),
+      };
+    }
+    if (payerIdentification) {
+      // Assumir CPF para Brasil
+      body.payer.identification = {
+        type: "CPF",
+        number: payerIdentification.replace(/\D+/g, ""),
+      };
+    }
+  }
 
   if (backUrl) {
     body.back_url = backUrl;
@@ -339,6 +533,7 @@ export async function getPayment(paymentId: number) {
       id: result.id,
       status: result.status,
       statusDetail: result.status_detail,
+      isFraudRejection: isFraudRejectionError({ statusDetail: result.status_detail }),
       amount: result.transaction_amount,
       approvedAt: result.date_approved,
     };
@@ -355,6 +550,9 @@ export async function getPayment(paymentId: number) {
  * @param planName - Nome do plano
  * @param email - Email do cliente
  * @param startDate - Data de início da assinatura
+ * @param payerName - Nome do titular do cartão (reduz risco de fraude)
+ * @param payerPhone - Telefone do comprador (reduz risco de fraude)
+ * @param payerIdentification - CPF do comprador (reduz risco de fraude)
  * @returns ID da assinatura (preapprovalId) e status
  */
 export async function createPreapproval(
@@ -362,7 +560,10 @@ export async function createPreapproval(
   planPrice: number,
   planName: string,
   email: string,
-  startDate: Date
+  startDate: Date,
+  payerName?: string,
+  payerPhone?: string,
+  payerIdentification?: string
 ) {
   if (!preApproval) {
     throw new Error("Mercado Pago não está configurado. Configure MERCADOPAGO_ACCESS_TOKEN nas variáveis de ambiente.");
@@ -377,6 +578,9 @@ export async function createPreapproval(
       email,
       startDate,
       backUrl,
+      payerName,
+      payerPhone,
+      payerIdentification,
     });
 
     const result = await preApproval.create({
@@ -396,12 +600,24 @@ export async function createPreapproval(
     };
   } catch (error: any) {
     const requestId = extractMercadoPagoRequestId(error);
+    const statusDetail = error?.status_detail || (error as any).statusDetail;
+    
     console.error("Erro ao criar assinatura:", {
       message: error?.message,
       status: error?.status,
+      statusDetail,
       requestId,
       cause: error?.cause,
     });
+
+    // Se for erro de fraude, retornar mensagem específica
+    if (isFraudRejectionError(error, statusDetail)) {
+      const enrichedMessage = requestId
+        ? `${getFraudRejectionGuidance(statusDetail)} (request_id: ${requestId})`
+        : getFraudRejectionGuidance(statusDetail);
+      throw new Error(enrichedMessage);
+    }
+
     const message = error?.message || "Falha ao criar assinatura recorrente";
     const enrichedMessage = requestId
       ? `${message} (request_id: ${requestId})`
@@ -420,6 +636,7 @@ export async function createPreapprovalPlan(
   planName: string,
   backUrl?: string,
   idempotencyKey?: string,
+  notificationUrl?: string,
 ) {
   if (!preApprovalPlan) {
     throw new Error("Mercado Pago não está configurado. Configure MERCADOPAGO_ACCESS_TOKEN nas variáveis de ambiente.");
@@ -440,6 +657,16 @@ export async function createPreapprovalPlan(
 
   if (backUrl) {
     body.back_url = backUrl;
+  }
+
+  // Add notification_url for Mercado Pago to send webhook notifications
+  if (notificationUrl) {
+    body.notification_url = notificationUrl;
+  }
+
+  // Add external_reference to correlate with internal system
+  if (idempotencyKey) {
+    body.external_reference = idempotencyKey;
   }
 
   try {
@@ -477,9 +704,13 @@ export async function getPreapproval(preapprovalId: string) {
   
   try {
     const result = await preApproval.get({ id: preapprovalId });
+    const statusDetail = (result as any).status_detail || (result as any).statusDetail;
+    
     return {
       id: result.id,
       status: (result as any).status,
+      statusDetail: statusDetail,
+      isFraudRejection: isFraudRejectionError({ statusDetail }, statusDetail),
       nextBillingDate: (result as any).next_billing_date,
       reason: (result as any).reason,
       summarized: (result as any).summarized,

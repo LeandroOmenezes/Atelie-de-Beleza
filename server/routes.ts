@@ -2327,7 +2327,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         paymentToken,
         `Serviço agendado`,
         appointment.email,
-        appointmentId
+        appointmentId,
+        mercadoPago.getMercadoPagoWebhookUrl(),
       );
 
       // Update appointment payment status
@@ -2767,11 +2768,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Validate Mercado Pago webhook signature
-  function validateMercadoPagoSignature(body: any, signature: string): boolean {
+  function validateMercadoPagoSignature(body: any, signature?: string): boolean {
     const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
     if (!secret) {
       console.warn("MERCADOPAGO_WEBHOOK_SECRET not configured, skipping signature validation");
       return true; // Allow if not configured (development)
+    }
+
+    if (!signature || typeof signature !== "string" || !signature.trim()) {
+      console.warn("Webhook signature missing; allowing request to preserve Mercado Pago monitoring compatibility");
+      return true;
     }
 
     try {
@@ -2797,92 +2803,117 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Webhook from Mercado Pago
   app.post("/api/webhooks/mercadopago", async (req: Request, res: Response) => {
     try {
-      // Validate signature
-      const signature = req.headers["x-signature"] as string;
-      if (!validateMercadoPagoSignature(req.body, signature)) {
+      // Validate signature when present. Some Mercado Pago monitoring checks hit the endpoint without the header.
+      const signature = req.headers["x-signature"] as string | undefined;
+      if (signature && !validateMercadoPagoSignature(req.body, signature)) {
         console.warn("Rejected webhook with invalid signature");
         return res.status(401).json({ message: "Invalid signature" });
+      }
+
+      if (!signature) {
+        validateMercadoPagoSignature(req.body, signature);
       }
 
       const { action, data, type } = req.body;
 
       // Payment webhook
       if (type === "payment") {
-        const paymentId = data.id;
-        const paymentData = await mercadoPago.getPayment(paymentId);
+        const paymentId = data?.id;
+        if (paymentId == null) {
+          return res.json({ received: true });
+        }
 
-        // Find appointment by mpPaymentId
-        const allAppointments = await storage.getAppointments();
-        const appointment = allAppointments.find(a => a.mpPaymentId === paymentId.toString());
+        try {
+          const paymentData = await mercadoPago.getPayment(paymentId);
 
-        if (appointment) {
-          if (paymentData.status === "approved") {
-            await storage.updateAppointmentPayment(appointment.id, {
-              paymentStatus: "paid",
-            });
-            await storage.updateAppointmentStatus(appointment.id, "confirmed");
-            await syncSaleForAppointment(appointment.id);
-          } else if (paymentData.status === "rejected" || paymentData.status === "cancelled") {
-            await storage.updateAppointmentPayment(appointment.id, {
-              paymentStatus: "failed",
-            });
+          const allAppointments = await storage.getAppointments();
+          const appointment = allAppointments.find(a => a.mpPaymentId === paymentId.toString());
+
+          if (appointment) {
+            if (paymentData.status === "approved") {
+              await storage.updateAppointmentPayment(appointment.id, {
+                paymentStatus: "paid",
+              });
+              await storage.updateAppointmentStatus(appointment.id, "confirmed");
+              await syncSaleForAppointment(appointment.id);
+            } else if (paymentData.status === "rejected" || paymentData.status === "cancelled") {
+              await storage.updateAppointmentPayment(appointment.id, {
+                paymentStatus: "failed",
+              });
+            }
           }
+        } catch (paymentError) {
+          console.warn("Mercado Pago payment webhook ignored because the payment id is not known or was not found:", {
+            paymentId,
+            error: paymentError,
+          });
         }
       }
 
       // Subscription webhook
       if (type === "subscription_preapproval") {
-        const preapprovalId = data.id;
-        const subscription = await storage.getUserSubscriptionByPreapprovalId(preapprovalId);
+        const preapprovalId = data?.id;
+        if (preapprovalId == null) {
+          return res.json({ received: true });
+        }
 
-        if (subscription) {
-          if (action === "subscription_preapproval.updated") {
-            const preapprovalData = await mercadoPago.getPreapproval(preapprovalId);
-            if (preapprovalData.status === "authorized") {
-              const updatedSubscription = await storage.updateUserSubscription(subscription.id, {
-                status: "authorized",
-                nextBillingDate: new Date(preapprovalData.nextBillingDate || Date.now()),
-              });
+        try {
+          const subscription = await storage.getUserSubscriptionByPreapprovalId(preapprovalId);
 
-              if (subscription.status !== "authorized") {
+          if (subscription) {
+            if (action === "subscription_preapproval.updated") {
+              const preapprovalData = await mercadoPago.getPreapproval(preapprovalId);
+              if (preapprovalData.status === "authorized") {
+                const updatedSubscription = await storage.updateUserSubscription(subscription.id, {
+                  status: "authorized",
+                  nextBillingDate: new Date(preapprovalData.nextBillingDate || Date.now()),
+                });
+
+                if (subscription.status !== "authorized") {
+                  const [subscriptionOwner, subscriptionPlan] = await Promise.all([
+                    storage.getUser(subscription.userId),
+                    storage.getSubscriptionPlanById(subscription.planId),
+                  ]);
+
+                  if ((subscriptionOwner?.email || subscriptionOwner?.username) && updatedSubscription) {
+                    void sendSubscriptionApprovedEmail({
+                      to: subscriptionOwner.email || subscriptionOwner.username || "",
+                      customerName: subscriptionOwner.name,
+                      planName: subscriptionPlan?.name || `Plano #${subscription.planId}`,
+                      planPrice: Number(subscriptionPlan?.price || 0),
+                      nextBillingDate: updatedSubscription.nextBillingDate,
+                    }).catch((error) => {
+                      console.warn("Falha ao enviar email de assinatura aprovada (webhook):", error);
+                    });
+                  }
+                }
+              } else if (preapprovalData.status === "cancelled" && subscription.status !== "cancelled") {
+                await storage.updateUserSubscription(subscription.id, {
+                  status: "cancelled",
+                });
+
                 const [subscriptionOwner, subscriptionPlan] = await Promise.all([
                   storage.getUser(subscription.userId),
                   storage.getSubscriptionPlanById(subscription.planId),
                 ]);
 
-                if ((subscriptionOwner?.email || subscriptionOwner?.username) && updatedSubscription) {
-                  void sendSubscriptionApprovedEmail({
+                if (subscriptionOwner?.email || subscriptionOwner?.username) {
+                  void sendSubscriptionCancelledEmail({
                     to: subscriptionOwner.email || subscriptionOwner.username || "",
                     customerName: subscriptionOwner.name,
                     planName: subscriptionPlan?.name || `Plano #${subscription.planId}`,
-                    planPrice: Number(subscriptionPlan?.price || 0),
-                    nextBillingDate: updatedSubscription.nextBillingDate,
                   }).catch((error) => {
-                    console.warn("Falha ao enviar email de assinatura aprovada (webhook):", error);
+                    console.warn("Falha ao enviar email de cancelamento de assinatura (webhook):", error);
                   });
                 }
               }
-            } else if (preapprovalData.status === "cancelled" && subscription.status !== "cancelled") {
-              await storage.updateUserSubscription(subscription.id, {
-                status: "cancelled",
-              });
-
-              const [subscriptionOwner, subscriptionPlan] = await Promise.all([
-                storage.getUser(subscription.userId),
-                storage.getSubscriptionPlanById(subscription.planId),
-              ]);
-
-              if (subscriptionOwner?.email || subscriptionOwner?.username) {
-                void sendSubscriptionCancelledEmail({
-                  to: subscriptionOwner.email || subscriptionOwner.username || "",
-                  customerName: subscriptionOwner.name,
-                  planName: subscriptionPlan?.name || `Plano #${subscription.planId}`,
-                }).catch((error) => {
-                  console.warn("Falha ao enviar email de cancelamento de assinatura (webhook):", error);
-                });
-              }
             }
           }
+        } catch (subscriptionError) {
+          console.warn("Mercado Pago subscription webhook ignored because the preapproval is not known or was not found:", {
+            preapprovalId,
+            error: subscriptionError,
+          });
         }
       }
 

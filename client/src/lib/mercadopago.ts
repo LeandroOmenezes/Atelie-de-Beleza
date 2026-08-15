@@ -9,6 +9,10 @@ const sdkScriptUrlV1 = "https://secure.mlstatic.com/org-img/SDK/Payment/lib/merc
 // evita múltiplas montagens concorrentes por container
 const mountingPromises: Record<string, Promise<any> | null> = {};
 
+export function shouldUseMercadoPagoSecureFields(options: any = {}): boolean {
+  return options?.forceFallback !== true && options?.preferSdk !== false;
+}
+
 function toErrorText(value: any): string {
   if (typeof value === "string") return value;
   if (value && typeof value.message === "string") return value.message;
@@ -519,7 +523,7 @@ export async function createCardForm(containerId: string, options: any = {}) {
   }
 
   const promise = (async () => {
-    const shouldUseFallbackOnly = options?.preferSdk !== true;
+    const shouldUseFallbackOnly = Boolean(options?.forceFallback) || options?.preferSdk === false;
 
     if (shouldUseFallbackOnly) {
       await waitForFormContainer(containerId);

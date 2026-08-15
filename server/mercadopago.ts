@@ -268,6 +268,15 @@ export function getValidMercadoPagoBackUrl(): string | undefined {
   return "https://www.mercadopago.com.br";
 }
 
+export function getMercadoPagoWebhookUrl(): string {
+  const baseUrl = getValidMercadoPagoBackUrl();
+  if (!baseUrl) {
+    return "https://www.mercadopago.com.br/api/webhooks/mercadopago";
+  }
+
+  return `${baseUrl.replace(/\/$/, "")}/api/webhooks/mercadopago`;
+}
+
 export function getMercadoPagoSubscriptionCallbackState(rawUrl?: string) {
   const url = new URL(rawUrl || (typeof window !== "undefined" ? window.location.href : "https://example.com"));
   const pathname = url.pathname.toLowerCase();
@@ -471,12 +480,15 @@ export async function createAppointmentPayment(
   token: string,
   description: string,
   email: string,
-  appointmentId: number
+  appointmentId: number,
+  notificationUrl?: string,
 ) {
   if (!payment) {
     throw new Error("Mercado Pago não está configurado. Configure MERCADOPAGO_ACCESS_TOKEN nas variáveis de ambiente.");
   }
-  
+
+  const resolvedNotificationUrl = notificationUrl || getMercadoPagoWebhookUrl();
+
   try {
     const result = await payment.create({
       body: {
@@ -484,6 +496,7 @@ export async function createAppointmentPayment(
         token: token,
         description: `Agendamento #${appointmentId}: ${description}`,
         external_reference: `appointment:${appointmentId}`,
+        notification_url: resolvedNotificationUrl,
         items: [
           {
             id: String(appointmentId),

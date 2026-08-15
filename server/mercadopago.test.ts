@@ -2,6 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildPreapprovalBody, getMercadoPagoRequestOptions, getMercadoPagoSubscriptionCallbackState, getValidMercadoPagoBackUrl, isCardTokenServiceError, isPreapprovalPlanVisibilityError, translateMercadoPagoError } from "./mercadopago.ts";
+import { shouldUseMercadoPagoSecureFields } from "../client/src/lib/mercadopago.ts";
 
 test("detecta erro de visibilidade do plano de assinatura do Mercado Pago", () => {
   const error = {
@@ -105,4 +106,10 @@ test("traduz erro de token inválido do Mercado Pago com mensagem clara", () => 
 
   assert.match(translated, /credenciais do Mercado Pago/i);
   assert.match(translated, /MERCADOPAGO_ACCESS_TOKEN/i);
+});
+test("usa Secure Fields do Mercado Pago por padrão e só cai em fallback quando explicitamente solicitado", () => {
+  assert.equal(shouldUseMercadoPagoSecureFields({}), true);
+  assert.equal(shouldUseMercadoPagoSecureFields({ preferSdk: true }), true);
+  assert.equal(shouldUseMercadoPagoSecureFields({ preferSdk: false }), false);
+  assert.equal(shouldUseMercadoPagoSecureFields({ forceFallback: true }), false);
 });

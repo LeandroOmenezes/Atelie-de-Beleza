@@ -74,7 +74,7 @@ export default function Header() {
             <div className="flex items-center space-x-4">
               <Link
                 href="/profile"
-                className={`flex items-center space-x-3 bg-gray-100 px-3 py-2 rounded-full transition-colors duration-200 ${location === "/profile" ? "ring-2 ring-blue-200 bg-blue-50" : "hover:bg-gray-200"}`}
+                className={`flex items-center gap-3 rounded-full border border-gray-200 bg-white px-2.5 py-1.5 shadow-sm transition-all duration-200 ${location === "/profile" ? "border-blue-200 bg-blue-50" : "hover:border-blue-200 hover:bg-gray-50"}`}
               >
                 <Avatar 
                   userId={user.id} 
@@ -82,11 +82,10 @@ export default function Header() {
                   imageUrl={user.profileImageBase64 ? (user.profileImageBase64.startsWith('http') ? user.profileImageBase64 : `/api/images/user/${user.id}`) : undefined}
                   size="sm"
                 />
-                <div className="text-sm text-left">
-                  <div className="font-medium text-gray-800">{user.name || user.username}</div>
-                  <div className="text-[11px] text-gray-500">Meu Perfil</div>
+                <div className="text-left leading-tight">
+                  <div className="text-sm font-semibold text-gray-800">{user.name || user.username}</div>
                   {user.isAdmin && (
-                    <div className="text-[10px] text-blue-600 font-medium">Administrador</div>
+                    <div className="text-[10px] font-medium text-pink-500">Administrador</div>
                   )}
                 </div>
               </Link>
@@ -144,7 +143,7 @@ export default function Header() {
             <>
               <Link
                 href="/profile"
-                className="flex items-center space-x-3 bg-gray-100 px-3 py-2 rounded-lg mb-3 w-full"
+                className="flex w-full items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2.5 shadow-sm transition-colors duration-200 hover:border-blue-200 hover:bg-gray-50"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <Avatar 
@@ -153,11 +152,10 @@ export default function Header() {
                   imageUrl={user.profileImageBase64 ? (user.profileImageBase64.startsWith('http') ? user.profileImageBase64 : `/api/images/user/${user.id}`) : undefined}
                   size="sm"
                 />
-                <div className="text-sm text-left">
-                  <div className="font-medium text-gray-800">{user.name || user.username}</div>
-                  <div className="text-[11px] text-gray-500">Meu Perfil</div>
+                <div className="text-left leading-tight">
+                  <div className="text-sm font-semibold text-gray-800">{user.name || user.username}</div>
                   {user.isAdmin && (
-                    <div className="text-[10px] text-blue-600 font-medium">Administrador</div>
+                    <div className="text-[10px] font-medium text-pink-500">Administrador</div>
                   )}
                 </div>
               </Link>

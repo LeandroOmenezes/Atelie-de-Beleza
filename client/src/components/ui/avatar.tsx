@@ -23,8 +23,21 @@ export function Avatar({ userId, userName, imageUrl, size = "md", className = ""
     lg: "h-6 w-6"
   };
 
+  const normalizeName = (value: string) => value.trim().replace(/\s+/g, " ");
+  const getInitials = (value: string) => {
+    const cleanName = normalizeName(value);
+    if (!cleanName) return "U";
+
+    const parts = cleanName.split(" ").filter(Boolean);
+    if (parts.length === 1) {
+      return parts[0].slice(0, 2).toUpperCase();
+    }
+
+    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+  };
+
   const finalImageUrl = imageUrl;
-  const initials = userName ? userName.charAt(0).toUpperCase() : "U";
+  const initials = getInitials(userName);
   const imageSrc = finalImageUrl
     ? finalImageUrl.startsWith("http")
       ? `${finalImageUrl}${finalImageUrl.includes("?") ? "&" : "?"}cache=${Date.now()}`
@@ -43,7 +56,11 @@ export function Avatar({ userId, userName, imageUrl, size = "md", className = ""
             target.style.display = 'none';
             const parent = target.parentElement;
             if (parent) {
+              const existing = parent.querySelector('[data-avatar-fallback]');
+              if (existing) existing.remove();
+
               const span = document.createElement('span');
+              span.setAttribute('data-avatar-fallback', 'true');
               span.className = 'text-white font-medium text-xs';
               span.textContent = initials;
               parent.appendChild(span);

@@ -72,25 +72,23 @@ export default function Header() {
           
           {user ? (
             <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-3 bg-gray-100 px-3 py-2 rounded-full">
+              <Link
+                href="/profile"
+                className={`flex items-center space-x-3 bg-gray-100 px-3 py-2 rounded-full transition-colors duration-200 ${location === "/profile" ? "ring-2 ring-blue-200 bg-blue-50" : "hover:bg-gray-200"}`}
+              >
                 <Avatar 
                   userId={user.id} 
                   userName={user.name || user.username}
                   imageUrl={user.profileImageBase64 ? (user.profileImageBase64.startsWith('http') ? user.profileImageBase64 : `/api/images/user/${user.id}`) : undefined}
                   size="sm"
                 />
-                <div className="text-sm">
+                <div className="text-sm text-left">
                   <div className="font-medium text-gray-800">{user.name || user.username}</div>
+                  <div className="text-[11px] text-gray-500">Meu Perfil</div>
                   {user.isAdmin && (
-                    <div className="text-xs text-blue-600 font-medium">Administrador</div>
+                    <div className="text-[10px] text-blue-600 font-medium">Administrador</div>
                   )}
                 </div>
-              </div>
-              <Link 
-                href="/profile" 
-                className={`text-gray-700 hover:text-blue-500 transition-colors duration-200 ${location === "/profile" ? "text-blue-500 font-medium" : ""}`}
-              >
-                Meu Perfil
               </Link>
               {isProfessional && (
                 <Link
@@ -144,26 +142,24 @@ export default function Header() {
           
           {user ? (
             <>
-              <div className="flex items-center space-x-3 bg-gray-100 px-3 py-2 rounded-lg mb-3">
+              <Link
+                href="/profile"
+                className="flex items-center space-x-3 bg-gray-100 px-3 py-2 rounded-lg mb-3 w-full"
+                onClick={() => setMobileMenuOpen(false)}
+              >
                 <Avatar 
                   userId={user.id} 
                   userName={user.name || user.username}
                   imageUrl={user.profileImageBase64 ? (user.profileImageBase64.startsWith('http') ? user.profileImageBase64 : `/api/images/user/${user.id}`) : undefined}
                   size="sm"
                 />
-                <div className="text-sm">
+                <div className="text-sm text-left">
                   <div className="font-medium text-gray-800">{user.name || user.username}</div>
+                  <div className="text-[11px] text-gray-500">Meu Perfil</div>
                   {user.isAdmin && (
-                    <div className="text-xs text-blue-600 font-medium">Administrador</div>
+                    <div className="text-[10px] text-blue-600 font-medium">Administrador</div>
                   )}
                 </div>
-              </div>
-              <Link 
-                href="/profile" 
-                className="block text-gray-700 py-2 hover:text-blue-500" 
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Meu Perfil
               </Link>
               {isProfessional && (
                 <Link
